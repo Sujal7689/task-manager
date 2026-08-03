@@ -1,0 +1,71 @@
+# Standalone production compose file — do NOT combine with docker-compose.yml
+# via multiple -f flags: Docker Compose concatenates list fields (ports,
+# volumes) across merged files rather than replacing them, which would leave
+# both nginx and Caddy configs mounted on the same container and Postgres's
+# port published anyway. Run this file by itself instead:
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# It's the same services as docker-compose.yml, except: Caddy replaces nginx
+# (free automatic HTTPS via Let's Encrypt — requires DOMAIN in .env with a
+# DNS A record already pointing at this server), and Postgres's port isn't
+# published to the host at all (a cloud box has no reason to expose it).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:
