@@ -89,6 +89,16 @@ export default function TaskList() {
     api.get<User[]>("/users").then((res) => setUsers(res.data));
   }, []);
 
+  async function downloadTemplate() {
+    const res = await api.get("/tasks/bulk-import/template", { responseType: "blob" });
+    const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "task-import-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleImport(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -117,6 +127,12 @@ export default function TaskList() {
         <h1 className="text-2xl font-semibold text-slate-900">Tasks</h1>
         {canCreate && (
           <div className="flex gap-2">
+            <button
+              onClick={downloadTemplate}
+              className="text-sm font-medium text-slate-600 border border-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50"
+            >
+              Download Template
+            </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
@@ -224,8 +240,10 @@ export default function TaskList() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                <th className="px-4 py-2">Task</th>
+                <th className="px-4 py-2">Task ID</th>
+                <th className="px-4 py-2">Task Name</th>
                 <th className="px-4 py-2">Project</th>
+                <th className="px-4 py-2">Department</th>
                 <th className="px-4 py-2">Due Date</th>
                 <th className="px-4 py-2">Assigned To</th>
                 <th className="px-4 py-2">Assigned By</th>
@@ -238,12 +256,16 @@ export default function TaskList() {
               {tasks.map((t) => (
                 <tr key={t.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-2">
-                    <Link to={`/tasks/${t.id}`} className="block">
-                      <p className="font-medium text-slate-900">{t.taskNumber} — {t.name}</p>
-                      {t.parentTaskId && <p className="text-xs text-slate-400">Sub-task</p>}
+                    <Link to={`/tasks/${t.id}`} className="font-medium text-slate-900 hover:underline">{t.taskNumber}</Link>
+                  </td>
+                  <td className="px-4 py-2">
+                    <Link to={`/tasks/${t.id}`} className="block text-slate-800 hover:underline">
+                      {t.name}
+                      {t.parentTaskId && <span className="text-xs text-slate-400 ml-2">Sub-task</span>}
                     </Link>
                   </td>
                   <td className="px-4 py-2 text-slate-600">{t.project?.name ?? "—"}</td>
+                  <td className="px-4 py-2 text-slate-600">{t.department?.name ?? "—"}</td>
                   <td className={`px-4 py-2 ${isOverdue(t) ? "text-red-600 font-medium" : "text-slate-600"}`}>
                     {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}
                   </td>

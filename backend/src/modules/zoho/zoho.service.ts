@@ -228,7 +228,7 @@ export async function getConnectionStatus() {
   const recentFailures = await prisma.zohoSyncLog.count({
     where: { status: "FAILED", syncedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
   });
-  return { configured, lastSync, recentFailures, pollIntervalMinutes: env.zohoPollIntervalMinutes };
+  return { configured, lastSync, recentFailures };
 }
 
 export async function listSyncLog() {

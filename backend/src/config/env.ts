@@ -29,6 +29,5 @@ export const env = {
   zohoRefreshToken: process.env.ZOHO_REFRESH_TOKEN ?? "",
   zohoAccountsBaseUrl: process.env.ZOHO_ACCOUNTS_BASE_URL ?? "https://accounts.zoho.com",
   zohoApiBaseUrl: process.env.ZOHO_API_BASE_URL ?? "https://www.zohoapis.com",
-  zohoPollIntervalMinutes: Number(process.env.ZOHO_POLL_INTERVAL_MINUTES ?? 15),
   zohoFallbackAssigneeEmail: process.env.ZOHO_FALLBACK_ASSIGNEE_EMAIL ?? "",
 };

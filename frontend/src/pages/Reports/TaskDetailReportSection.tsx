@@ -194,8 +194,10 @@ export default function TaskDetailReportSection() {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
-              <th className="px-4 py-2">Task</th>
+              <th className="px-4 py-2">Task ID</th>
+              <th className="px-4 py-2">Task Name</th>
               <th className="px-4 py-2">Project</th>
+              <th className="px-4 py-2">Department</th>
               <th className="px-4 py-2">Assigned To</th>
               <th className="px-4 py-2">Assigned By</th>
               <th className="px-4 py-2">Due Date</th>
@@ -210,9 +212,13 @@ export default function TaskDetailReportSection() {
             {rows.map((t) => (
               <tr key={t.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
                 <td className="px-4 py-2">
-                  <Link to={`/tasks/${t.id}`} className="font-medium text-slate-900 hover:underline">{t.taskNumber} — {t.name}</Link>
+                  <Link to={`/tasks/${t.id}`} className="font-medium text-slate-900 hover:underline">{t.taskNumber}</Link>
+                </td>
+                <td className="px-4 py-2">
+                  <Link to={`/tasks/${t.id}`} className="text-slate-800 hover:underline">{t.name}</Link>
                 </td>
                 <td className="px-4 py-2 text-slate-600">{t.project?.name ?? "—"}</td>
+                <td className="px-4 py-2 text-slate-600">{t.department?.name ?? "—"}</td>
                 <td className="px-4 py-2 text-slate-600">{t.assignees.map((a) => a.user.name).join(", ") || "—"}</td>
                 <td className="px-4 py-2 text-slate-600">{t.assignedBy?.name ?? "—"}</td>
                 <td className="px-4 py-2 text-slate-600">{t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}</td>

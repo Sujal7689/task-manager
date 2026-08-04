@@ -1,5 +1,6 @@
 import { prisma } from "../../config/prisma";
 import { computeEfficiency } from "../kpi/kpi.service";
+import { topLevelTaskFilter } from "../tasks/tasks.service";
 import { getLeaderboard, LeaderboardPeriod } from "../leaderboard/leaderboard.service";
 
 // Central Leadership Dashboard: cross-company, org-wide view. Admin-only —
@@ -12,7 +13,7 @@ export async function getCompaniesOverview() {
 
   const perCompany = await Promise.all(
     companies.map(async (c) => {
-      const scopeWhere = { OR: [{ companyId: c.id }, { project: { companyId: c.id } }] };
+      const scopeWhere = { ...topLevelTaskFilter, OR: [{ companyId: c.id }, { project: { companyId: c.id } }] };
       const [totalTasks, completedTasks, overdueTasks, totalUsers, totalProjects] = await Promise.all([
         prisma.task.count({ where: scopeWhere }),
         prisma.task.count({ where: { ...scopeWhere, status: "COMPLETED" } }),
@@ -50,7 +51,7 @@ export async function getBottlenecks(limit = 10) {
 
   const rows = await Promise.all(
     departments.map(async (d) => {
-      const scopeWhere = { OR: [{ departmentId: d.id }, { project: { departmentId: d.id } }] };
+      const scopeWhere = { ...topLevelTaskFilter, OR: [{ departmentId: d.id }, { project: { departmentId: d.id } }] };
       const [total, overdue] = await Promise.all([
         prisma.task.count({ where: scopeWhere }),
         prisma.task.count({ where: { ...scopeWhere, dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } } }),
@@ -76,7 +77,10 @@ export async function getMilestoneDelays() {
   const now = Date.now();
   const milestones = await prisma.milestone.findMany({
     where: { status: { not: "COMPLETED" } },
-    include: { project: { select: { name: true, startDate: true } }, tasks: { select: { percentComplete: true } } },
+    include: {
+      project: { select: { name: true, startDate: true } },
+      tasks: { where: topLevelTaskFilter, select: { percentComplete: true } },
+    },
   });
 
   return milestones
@@ -103,7 +107,7 @@ export async function getProjectDelays() {
 
   return Promise.all(
     projects.map(async (p) => {
-      const tasks = await prisma.task.findMany({ where: { projectId: p.id }, select: { percentComplete: true } });
+      const tasks = await prisma.task.findMany({ where: { ...topLevelTaskFilter, projectId: p.id }, select: { percentComplete: true } });
       const progress = tasks.length === 0 ? 0 : Math.round(tasks.reduce((s, t) => s + t.percentComplete, 0) / tasks.length);
       return { id: p.id, name: p.name, company: p.company.name, department: p.department.name, endDate: p.endDate, progress };
     }),

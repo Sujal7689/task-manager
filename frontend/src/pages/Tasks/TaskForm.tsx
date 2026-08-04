@@ -1,9 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
-import { Category, Milestone, Priority, Project, Task, User } from "../../types";
+import { Category, Department, Milestone, Priority, Project, Task, User } from "../../types";
 
 const priorities: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+
+function errorMessage(err: unknown, fallback: string): string {
+  const axiosErr = err as { response?: { data?: { error?: string } } };
+  return axiosErr.response?.data?.error ?? fallback;
+}
 
 export default function TaskForm() {
   const { id } = useParams();
@@ -13,14 +18,17 @@ export default function TaskForm() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [parentTask, setParentTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState(searchParams.get("projectId") ?? "");
   const [milestoneId, setMilestoneId] = useState(searchParams.get("milestoneId") ?? "");
+  const [departmentId, setDepartmentId] = useState("");
   const [parentTaskId, setParentTaskId] = useState(searchParams.get("parentTaskId") ?? "");
   const [categoryId, setCategoryId] = useState("");
   const [priority, setPriority] = useState<Priority>("MEDIUM");
@@ -35,9 +43,26 @@ export default function TaskForm() {
   useEffect(() => {
     api.get<Project[]>("/projects").then((res) => setProjects(res.data));
     api.get<Milestone[]>("/milestones").then((res) => setMilestones(res.data));
+    api.get<Department[]>("/departments").then((res) => setDepartments(res.data));
     api.get<Category[]>("/categories").then((res) => setCategories(res.data));
     api.get<User[]>("/users").then((res) => setUsers(res.data));
   }, []);
+
+  useEffect(() => {
+    if (!parentTaskId) {
+      setParentTask(null);
+      return;
+    }
+    api.get<Task>(`/tasks/${parentTaskId}`).then((res) => {
+      setParentTask(res.data);
+      // Sub-tasks live under their parent's Project/Milestone/Department —
+      // inherit them so the form doesn't misleadingly show "— none —" for
+      // fields that will actually be set once the sub-task is created.
+      setProjectId(res.data.projectId ?? "");
+      setMilestoneId(res.data.milestoneId ?? "");
+      setDepartmentId(res.data.departmentId ?? "");
+    });
+  }, [parentTaskId]);
 
   useEffect(() => {
     if (!isEdit) return;
@@ -47,6 +72,7 @@ export default function TaskForm() {
       setDescription(t.description ?? "");
       setProjectId(t.projectId ?? "");
       setMilestoneId(t.milestoneId ?? "");
+      setDepartmentId(t.departmentId ?? "");
       setParentTaskId(t.parentTaskId ?? "");
       setCategoryId(t.categoryId ?? "");
       setPriority(t.priority);
@@ -68,6 +94,7 @@ export default function TaskForm() {
       description: description || undefined,
       projectId: projectId || undefined,
       milestoneId: milestoneId || undefined,
+      departmentId: departmentId || undefined,
       parentTaskId: parentTaskId || undefined,
       categoryId: categoryId || undefined,
       priority,
@@ -83,12 +110,15 @@ export default function TaskForm() {
       if (isEdit) {
         await api.patch(`/tasks/${id}`, payload);
         navigate(`/tasks/${id}`);
+      } else if (parentTaskId) {
+        await api.post("/tasks", payload);
+        navigate(`/tasks/${parentTaskId}?tab=Sub-tasks`);
       } else {
         const res = await api.post("/tasks", payload);
         navigate(`/tasks/${res.data.id}`);
       }
-    } catch {
-      setError("Could not save task. A Project or Milestone (or parent task) is required.");
+    } catch (err) {
+      setError(errorMessage(err, "Could not save task. A Project or Milestone (or parent task) is required."));
     }
   }
 
@@ -98,7 +128,14 @@ export default function TaskForm() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold text-slate-900 mb-6">{isEdit ? "Edit Task" : "New Task"}</h1>
+      <h1 className={`text-2xl font-semibold text-slate-900 ${parentTask ? "mb-1" : "mb-6"}`}>
+        {isEdit ? "Edit Task" : parentTaskId ? "New Sub-task" : "New Task"}
+      </h1>
+      {parentTask && (
+        <p className="text-sm text-slate-500 mb-6">
+          Sub-task of <span className="font-medium text-slate-700">{parentTask.taskNumber} — {parentTask.name}</span>. Project and Milestone are inherited from the parent task.
+        </p>
+      )}
 
       <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
         {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
@@ -115,18 +152,49 @@ export default function TaskForm() {
         <Section title="Hierarchy">
           <div className="grid sm:grid-cols-2 gap-3">
             <Field label="Project">
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
+              <select
+                value={projectId}
+                onChange={(e) => {
+                  const newProjectId = e.target.value;
+                  setProjectId(newProjectId);
+                  setMilestoneId("");
+                  const proj = projects.find((p) => p.id === newProjectId);
+                  if (proj) setDepartmentId(proj.departmentId);
+                }}
+                disabled={Boolean(parentTaskId)}
+                className="input disabled:bg-slate-50 disabled:text-slate-500"
+              >
                 <option value="">— none —</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </Field>
-            <Field label="Milestone (optional)">
-              <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)} className="input">
+            <Field label={parentTaskId ? "Milestone" : projectId ? "Milestone" : "Milestone (optional)"}>
+              <select
+                value={milestoneId}
+                onChange={(e) => setMilestoneId(e.target.value)}
+                disabled={Boolean(parentTaskId)}
+                required={Boolean(projectId) && !parentTaskId}
+                className="input disabled:bg-slate-50 disabled:text-slate-500"
+              >
                 <option value="">— none —</option>
                 {milestones.filter((m) => !projectId || m.projectId === projectId).map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Department">
+              <select
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                disabled={Boolean(parentTaskId)}
+                required={!parentTaskId}
+                className="input disabled:bg-slate-50 disabled:text-slate-500"
+              >
+                <option value="">— select —</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
               </select>
             </Field>
@@ -198,7 +266,7 @@ export default function TaskForm() {
         </Section>
 
         <button type="submit" className="w-full bg-slate-900 text-white rounded-lg py-2.5 font-medium hover:bg-slate-800">
-          {isEdit ? "Save changes" : "Create task"}
+          {isEdit ? "Save changes" : parentTaskId ? "Create sub-task" : "Create task"}
         </button>
       </form>
     </div>

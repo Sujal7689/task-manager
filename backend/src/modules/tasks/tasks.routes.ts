@@ -11,11 +11,12 @@ const router = Router();
 router.use(requireAuth);
 
 const canCreateEdit = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD);
-const canDelete = requireRole(Role.ADMIN, Role.MANAGER);
+const canDelete = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD);
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const { upload: attachmentUpload } = makeUploader("tasks");
 
 router.get("/", asyncHandler(controller.listHandler));
+router.get("/bulk-import/template", asyncHandler(controller.bulkImportTemplateHandler));
 router.post("/bulk-import", canCreateEdit, csvUpload.single("file"), asyncHandler(controller.bulkImportHandler));
 router.get("/:id", asyncHandler(controller.getHandler));
 router.post("/", canCreateEdit, asyncHandler(controller.createHandler));

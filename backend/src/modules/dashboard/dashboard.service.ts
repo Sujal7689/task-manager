@@ -1,6 +1,6 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
-import { getTaskScopeWhere } from "../tasks/tasks.service";
+import { getTaskScopeWhere, topLevelTaskFilter } from "../tasks/tasks.service";
 import { getDirectReportIds } from "../users/users.service";
 import { computeMemberSummary, computeTeamAverageVolume, getEffectiveWeights, MemberSummary } from "../kpi/kpi.service";
 import { getPeriodRange, LeaderboardPeriod } from "../leaderboard/leaderboard.service";
@@ -21,13 +21,17 @@ export async function getStaffSummary(user: AuthUser) {
   endOfWeek.setDate(endOfWeek.getDate() + 7);
 
   const [totalTasks, dueToday, dueThisWeek, overdue, criticalCount, recent] = await Promise.all([
-    prisma.task.count({ where: scope }),
-    prisma.task.count({ where: { AND: [scope, { dueDate: { lte: endOfToday, gte: now } }] } }),
-    prisma.task.count({ where: { AND: [scope, { dueDate: { lte: endOfWeek, gte: now } }] } }),
-    prisma.task.count({ where: { AND: [scope, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] } }),
-    prisma.task.count({ where: { AND: [scope, { priority: "CRITICAL" }, { status: { notIn: ["COMPLETED", "CANCELLED"] } }] } }),
+    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter] } }),
+    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { lte: endOfToday, gte: now } }] } }),
+    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { lte: endOfWeek, gte: now } }] } }),
+    prisma.task.count({
+      where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+    }),
+    prisma.task.count({
+      where: { AND: [scope, topLevelTaskFilter, { priority: "CRITICAL" }, { status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+    }),
     prisma.task.findMany({
-      where: scope,
+      where: { AND: [scope, topLevelTaskFilter] },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: { id: true, taskNumber: true, name: true, status: true, dueDate: true },
@@ -41,7 +45,7 @@ export async function getManagerSummary(user: AuthUser) {
   if (!user.departmentId) return { heatmap: [], overdueCount: 0 };
 
   const tasks = await prisma.task.findMany({
-    where: { OR: [{ departmentId: user.departmentId }, { project: { departmentId: user.departmentId } }] },
+    where: { AND: [topLevelTaskFilter, { OR: [{ departmentId: user.departmentId }, { project: { departmentId: user.departmentId } }] }] },
     select: { status: true, dueDate: true },
   });
 
@@ -58,7 +62,7 @@ export async function getAdminSummary() {
     prisma.department.findMany(),
     prisma.user.count({ where: { status: "ACTIVE" } }),
     prisma.project.count(),
-    prisma.task.count(),
+    prisma.task.count({ where: topLevelTaskFilter }),
   ]);
 
   // Not a Prisma relation _count: that only follows Task.departmentId directly,
@@ -67,7 +71,9 @@ export async function getAdminSummary() {
     departments.map(async (d) => ({
       departmentId: d.id,
       department: d.name,
-      count: await prisma.task.count({ where: { OR: [{ departmentId: d.id }, { project: { departmentId: d.id } }] } }),
+      count: await prisma.task.count({
+        where: { AND: [topLevelTaskFilter, { OR: [{ departmentId: d.id }, { project: { departmentId: d.id } }] }] },
+      }),
     })),
   );
 
@@ -127,7 +133,10 @@ export async function getProjectProgress(user: AuthUser) {
   const projects = await getVisibleProjects(user);
   return Promise.all(
     projects.map(async (p) => {
-      const tasks = await prisma.task.findMany({ where: { projectId: p.id }, select: { percentComplete: true, status: true } });
+      const tasks = await prisma.task.findMany({
+        where: { AND: [topLevelTaskFilter, { projectId: p.id }] },
+        select: { percentComplete: true, status: true },
+      });
       const avgProgress = tasks.length === 0 ? 0 : Math.round(tasks.reduce((s, t) => s + t.percentComplete, 0) / tasks.length);
       const completedCount = tasks.filter((t) => t.status === "COMPLETED").length;
       return {
@@ -151,7 +160,10 @@ export async function getMilestoneTracking(user: AuthUser) {
   const projectIds = projects.map((p) => p.id);
   const milestones = await prisma.milestone.findMany({
     where: { projectId: { in: projectIds } },
-    include: { project: { select: { name: true, startDate: true } }, tasks: { select: { percentComplete: true } } },
+    include: {
+      project: { select: { name: true, startDate: true } },
+      tasks: { where: topLevelTaskFilter, select: { percentComplete: true } },
+    },
     orderBy: { targetDate: "asc" },
   });
 
@@ -189,7 +201,7 @@ export async function getDelayAnalysis(user: AuthUser) {
   const now = new Date();
 
   const overdueTasks = await prisma.task.findMany({
-    where: { AND: [scope, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+    where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
     select: { id: true, taskNumber: true, name: true, dueDate: true },
   });
 
@@ -214,7 +226,7 @@ export async function getDelayAnalysis(user: AuthUser) {
 // Current status distribution (pie chart). A plain snapshot — no time dimension.
 export async function getStatusDistribution(user: AuthUser) {
   const scope = await getTaskScopeWhere(user);
-  const tasks = await prisma.task.findMany({ where: scope, select: { status: true } });
+  const tasks = await prisma.task.findMany({ where: { AND: [scope, topLevelTaskFilter] }, select: { status: true } });
   const statuses = ["NOT_STARTED", "IN_PROGRESS", "ON_HOLD", "UNDER_REVIEW", "COMPLETED", "CANCELLED"] as const;
   return statuses.map((status) => ({ status, count: tasks.filter((t) => t.status === status).length }));
 }
@@ -247,10 +259,14 @@ export async function getTaskTrend(user: AuthUser, weeks = 8): Promise<TaskTrend
     weekStart.setHours(0, 0, 0, 0);
 
     const [created, completed, due, createdThisWeekInProgress] = await Promise.all([
-      prisma.task.count({ where: { AND: [scope, { createdAt: { gte: weekStart, lte: weekEnd } }] } }),
-      prisma.task.count({ where: { AND: [scope, { status: "COMPLETED", closedAt: { gte: weekStart, lte: weekEnd } }] } }),
-      prisma.task.count({ where: { AND: [scope, { dueDate: { gte: weekStart, lte: weekEnd } }] } }),
-      prisma.task.count({ where: { AND: [scope, { createdAt: { gte: weekStart, lte: weekEnd }, status: "IN_PROGRESS" }] } }),
+      prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { createdAt: { gte: weekStart, lte: weekEnd } }] } }),
+      prisma.task.count({
+        where: { AND: [scope, topLevelTaskFilter, { status: "COMPLETED", closedAt: { gte: weekStart, lte: weekEnd } }] },
+      }),
+      prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { gte: weekStart, lte: weekEnd } }] } }),
+      prisma.task.count({
+        where: { AND: [scope, topLevelTaskFilter, { createdAt: { gte: weekStart, lte: weekEnd }, status: "IN_PROGRESS" }] },
+      }),
     ]);
 
     result.push({ weekStart: weekStart.toISOString().slice(0, 10), created, completed, due, inProgress: createdThisWeekInProgress });

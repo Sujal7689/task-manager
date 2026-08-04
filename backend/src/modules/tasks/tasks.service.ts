@@ -4,13 +4,28 @@ import { AppError } from "../../utils/appError";
 import { getDirectReportIds } from "../users/users.service";
 import { notify } from "../notifications/notifications.service";
 
+// Sub-tasks are tracked under their parent (Sub-tasks tab) rather than as
+// independent items, so dashboards/KPIs/progress rollups count top-level
+// tasks only — a sub-task's completion shouldn't double-count alongside
+// the parent task it belongs to.
+export const topLevelTaskFilter: Prisma.TaskWhereInput = { parentTaskId: null };
+
 const taskInclude = {
   project: { select: { id: true, name: true } },
   milestone: { select: { id: true, name: true } },
   parentTask: { select: { id: true, taskNumber: true, name: true } },
-  subTasks: { select: { id: true, taskNumber: true, name: true, status: true } },
+  subTasks: {
+    select: {
+      id: true,
+      taskNumber: true,
+      name: true,
+      status: true,
+      assignees: { include: { user: { select: { id: true, name: true } } } },
+    },
+  },
   category: true,
   subCategory: true,
+  department: { select: { id: true, name: true } },
   assignedBy: { select: { id: true, name: true } },
   assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
   attachments: true,
@@ -54,10 +69,9 @@ export async function getTaskScopeWhere(user: AuthUser): Promise<Prisma.TaskWher
 }
 
 async function generateTaskNumber(): Promise<string> {
-  const year = new Date().getFullYear();
-  const prefix = `TSK-${year}-`;
+  const prefix = "T-";
   const count = await prisma.task.count({ where: { taskNumber: { startsWith: prefix } } });
-  return `${prefix}${String(count + 1).padStart(5, "0")}`;
+  return `${prefix}${String(count + 1).padStart(4, "0")}`;
 }
 
 // Shared filter set for both the interactive Task List and the Task Detail
@@ -172,7 +186,7 @@ function closedAtPatch(previousStatus: TaskStatus, nextStatus?: TaskStatus) {
 }
 
 async function resolveHierarchy(input: TaskInput) {
-  let { projectId, milestoneId } = input;
+  let { projectId, milestoneId, departmentId } = input;
 
   if (milestoneId) {
     const milestone = await prisma.milestone.findUnique({ where: { id: milestoneId } });
@@ -185,17 +199,19 @@ async function resolveHierarchy(input: TaskInput) {
     if (!parent) throw new AppError(400, "Parent task not found");
     projectId = projectId ?? parent.projectId ?? undefined;
     milestoneId = milestoneId ?? parent.milestoneId ?? undefined;
+    // A sub-task belongs to the same department as its parent unless overridden.
+    departmentId = departmentId ?? parent.departmentId ?? undefined;
   }
 
   if (!projectId && !input.parentTaskId) {
     throw new AppError(400, "A task must belong to a Project or Milestone, or be a sub-task of another Task");
   }
 
-  return { projectId, milestoneId };
+  return { projectId, milestoneId, departmentId };
 }
 
 export async function createTask(input: TaskInput, assignedById: string) {
-  const { projectId, milestoneId } = await resolveHierarchy(input);
+  const { projectId, milestoneId, departmentId } = await resolveHierarchy(input);
   const taskNumber = await generateTaskNumber();
 
   const task = await prisma.task.create({
@@ -216,7 +232,7 @@ export async function createTask(input: TaskInput, assignedById: string) {
       isRecurring: input.isRecurring ?? false,
       recurringFrequency: input.recurringFrequency,
       companyId: input.companyId,
-      departmentId: input.departmentId,
+      departmentId,
       assignedById,
       partyName: input.partyName,
       refId: input.refId,
@@ -245,9 +261,23 @@ export async function createTask(input: TaskInput, assignedById: string) {
   return task;
 }
 
+// A sub-task counts as "resolved" for its parent's completion gate whether it
+// was finished or explicitly cancelled — cancelled work shouldn't permanently
+// block the parent.
+function hasUnresolvedSubTasks(subTasks: { status: TaskStatus }[]): boolean {
+  return subTasks.some((st) => st.status !== "COMPLETED" && st.status !== "CANCELLED");
+}
+
 export async function updateTask(id: string, input: Partial<TaskInput>) {
-  const existing = await prisma.task.findUnique({ where: { id }, include: { assignees: true } });
+  const existing = await prisma.task.findUnique({
+    where: { id },
+    include: { assignees: true, subTasks: { select: { status: true } } },
+  });
   if (!existing) throw new AppError(404, "Task not found");
+
+  if (input.status === "COMPLETED" && existing.status !== "COMPLETED" && hasUnresolvedSubTasks(existing.subTasks)) {
+    throw new AppError(400, "All sub-tasks must be completed (or cancelled) before this task can be marked Completed");
+  }
 
   let projectId = input.projectId ?? existing.projectId ?? undefined;
   let milestoneId = input.milestoneId ?? existing.milestoneId ?? undefined;
@@ -318,8 +348,12 @@ export async function updateTask(id: string, input: Partial<TaskInput>) {
 
 // Restricted update available to Staff on tasks assigned to them: status + % complete only.
 export async function updateTaskProgress(id: string, data: { status?: TaskStatus; percentComplete?: number }) {
-  const existing = await prisma.task.findUnique({ where: { id } });
+  const existing = await prisma.task.findUnique({ where: { id }, include: { subTasks: { select: { status: true } } } });
   if (!existing) throw new AppError(404, "Task not found");
+
+  if (data.status === "COMPLETED" && existing.status !== "COMPLETED" && hasUnresolvedSubTasks(existing.subTasks)) {
+    throw new AppError(400, "All sub-tasks must be completed (or cancelled) before this task can be marked Completed");
+  }
 
   const updated = await prisma.task.update({
     where: { id },
@@ -351,12 +385,14 @@ export async function isTaskAssignee(taskId: string, userId: string): Promise<bo
 }
 
 // Section 6.2: bulk task upload (CSV/Excel import). Expected CSV columns:
-// name (required), projectId, milestoneId, priority, dueDate (YYYY-MM-DD),
-// estimatedHours, assigneeEmails ("a@x.com;b@x.com"), partyName, refId, tags ("a;b").
+// name (required), projectId, milestoneId, departmentId (required), priority,
+// dueDate (YYYY-MM-DD), estimatedHours, assigneeEmails ("a@x.com;b@x.com"),
+// partyName, refId, tags ("a;b"). See GET /tasks/bulk-import/template.
 export interface BulkImportRow {
   name?: string;
   projectId?: string;
   milestoneId?: string;
+  departmentId?: string;
   priority?: string;
   dueDate?: string;
   estimatedHours?: string;
@@ -378,6 +414,10 @@ export async function bulkCreateTasks(rows: BulkImportRow[], assignedById: strin
     const row = rows[i];
     try {
       if (!row.name?.trim()) throw new AppError(400, "Missing required 'name' column");
+      if (!row.departmentId?.trim()) throw new AppError(400, "Missing required 'departmentId' column");
+      if (row.projectId?.trim() && !row.milestoneId?.trim()) {
+        throw new AppError(400, "'milestoneId' is required when 'projectId' is set");
+      }
 
       let assigneeIds: string[] = [];
       if (row.assigneeEmails?.trim()) {
@@ -391,6 +431,7 @@ export async function bulkCreateTasks(rows: BulkImportRow[], assignedById: strin
           name: row.name.trim(),
           projectId: row.projectId?.trim() || undefined,
           milestoneId: row.milestoneId?.trim() || undefined,
+          departmentId: row.departmentId.trim(),
           priority: (row.priority?.trim().toUpperCase() as Priority) || undefined,
           dueDate: row.dueDate?.trim() || undefined,
           estimatedHours: row.estimatedHours ? Number(row.estimatedHours) : undefined,

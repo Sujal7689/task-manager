@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api/client";
+import { onNotificationsChanged } from "../utils/notificationsBus";
 
 const baseNavItems = [
   { to: "/", label: "Dashboard" },
@@ -30,7 +31,11 @@ export default function Layout() {
     }
     poll();
     const interval = setInterval(poll, 30000);
-    return () => clearInterval(interval);
+    const unsubscribe = onNotificationsChanged(poll);
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
   }, []);
 
   const canSeeReports = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";

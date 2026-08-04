@@ -10,9 +10,11 @@ export const listMilestones = (projectId?: string) =>
   });
 
 export async function getMilestone(id: string) {
+  // Sub-tasks are listed under their parent's Sub-tasks tab, not flattened
+  // here too — this list is top-level tasks only.
   const milestone = await prisma.milestone.findUnique({
     where: { id },
-    include: { owner: { select: { id: true, name: true } }, tasks: true, project: true },
+    include: { owner: { select: { id: true, name: true } }, tasks: { where: { parentTaskId: null } }, project: true },
   });
   if (!milestone) throw new AppError(404, "Milestone not found");
   return milestone;
@@ -52,7 +54,7 @@ export async function deleteMilestone(id: string) {
 
 // Milestone progress auto-rolls up from child Task completion % (Section 6.1).
 export async function getMilestoneProgress(id: string): Promise<number> {
-  const tasks = await prisma.task.findMany({ where: { milestoneId: id }, select: { percentComplete: true } });
+  const tasks = await prisma.task.findMany({ where: { milestoneId: id, parentTaskId: null }, select: { percentComplete: true } });
   if (tasks.length === 0) return 0;
   const total = tasks.reduce((sum, t) => sum + t.percentComplete, 0);
   return Math.round(total / tasks.length);

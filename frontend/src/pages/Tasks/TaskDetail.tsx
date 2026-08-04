@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { Task, TaskStatus } from "../../types";
@@ -10,19 +10,34 @@ import AttachmentsPanel from "./AttachmentsPanel";
 const tabs = ["Overview", "Scheduling", "Assignment", "Activity Log", "Attachments", "Comments", "Sub-tasks"] as const;
 type Tab = (typeof tabs)[number];
 
+function isTab(value: string | null): value is Tab {
+  return (tabs as readonly string[]).includes(value ?? "");
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  const axiosErr = err as { response?: { data?: { error?: string } } };
+  return axiosErr.response?.data?.error ?? fallback;
+}
+
 const statuses: TaskStatus[] = ["NOT_STARTED", "IN_PROGRESS", "ON_HOLD", "UNDER_REVIEW", "COMPLETED", "CANCELLED"];
 
 export default function TaskDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [task, setTask] = useState<Task | null>(null);
-  const [tab, setTab] = useState<Tab>("Overview");
+  const [tab, setTab] = useState<Tab>(() => {
+    const requested = searchParams.get("tab");
+    return isTab(requested) ? requested : "Overview";
+  });
   const [saving, setSaving] = useState(false);
+  const [progressError, setProgressError] = useState<string | null>(null);
 
   const canFullyEdit = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
-  const canDelete = user?.role === "ADMIN" || user?.role === "MANAGER";
+  const canDelete = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
   const isAssignee = task?.assignees.some((a) => a.userId === user?.id);
+  const openSubTasks = task?.subTasks?.filter((st) => st.status !== "COMPLETED" && st.status !== "CANCELLED") ?? [];
 
   function refresh() {
     api.get<Task>(`/tasks/${id}`).then((res) => setTask(res.data));
@@ -32,9 +47,12 @@ export default function TaskDetail() {
 
   async function updateProgress(status: TaskStatus, percentComplete: number) {
     setSaving(true);
+    setProgressError(null);
     try {
       await api.patch(`/tasks/${id}/progress`, { status, percentComplete });
       refresh();
+    } catch (err) {
+      setProgressError(errorMessage(err, "Could not update status."));
     } finally {
       setSaving(false);
     }
@@ -85,6 +103,14 @@ export default function TaskDetail() {
       {(canFullyEdit || isAssignee) && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 mb-6">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Update status</p>
+          {progressError && (
+            <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{progressError}</div>
+          )}
+          {!progressError && task.status !== "COMPLETED" && openSubTasks.length > 0 && (
+            <p className="mb-3 text-xs text-slate-500">
+              {openSubTasks.length} sub-task{openSubTasks.length > 1 ? "s" : ""} still open — all sub-tasks must be Completed or Cancelled before this task can be marked Completed.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2 mb-4">
             {statuses.map((s) => (
               <button
@@ -153,6 +179,7 @@ export default function TaskDetail() {
           <Item label="Assigned To" value={task.assignees.map((a) => a.user.name).join(", ") || "—"} full />
           <Item label="Project" value={task.project?.name || "—"} />
           <Item label="Milestone" value={task.milestone?.name || "—"} />
+          <Item label="Department" value={task.department?.name || "—"} />
         </dl>
       )}
 
@@ -176,7 +203,12 @@ export default function TaskDetail() {
             {task.subTasks?.map((st) => (
               <li key={st.id}>
                 <Link to={`/tasks/${st.id}`} className="flex items-center justify-between py-2 hover:bg-slate-50 -mx-2 px-2 rounded">
-                  <span className="text-sm text-slate-800">{st.taskNumber} — {st.name}</span>
+                  <span className="text-sm text-slate-800">
+                    {st.taskNumber} — {st.name}
+                    <span className="text-xs text-slate-400 ml-2">
+                      {st.assignees.length > 0 ? st.assignees.map((a) => a.user.name).join(", ") : "Unassigned"}
+                    </span>
+                  </span>
                   <span className="text-xs text-slate-500">{st.status}</span>
                 </Link>
               </li>

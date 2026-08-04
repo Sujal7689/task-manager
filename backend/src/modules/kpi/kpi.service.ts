@@ -1,4 +1,5 @@
 import { prisma } from "../../config/prisma";
+import { topLevelTaskFilter } from "../tasks/tasks.service";
 
 export interface KpiWeights {
   onTime: number;
@@ -69,7 +70,7 @@ interface UserKpiBase {
 // unrelated edits to a closed task don't retroactively change its completion moment.
 async function computeUserKpiBase(userId: string, from: Date, to: Date): Promise<UserKpiBase> {
   const completedTasks = await prisma.task.findMany({
-    where: { assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
+    where: { ...topLevelTaskFilter, assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
     select: { id: true, dueDate: true, closedAt: true, estimatedHours: true, closureRating: true },
   });
 
@@ -107,7 +108,9 @@ export async function computeTeamAverageVolume(userIds: string[], from: Date, to
   if (userIds.length === 0) return 0;
   const counts = await Promise.all(
     userIds.map((uid) =>
-      prisma.task.count({ where: { assignees: { some: { userId: uid } }, status: "COMPLETED", closedAt: { gte: from, lte: to } } }),
+      prisma.task.count({
+        where: { ...topLevelTaskFilter, assignees: { some: { userId: uid } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
+      }),
     ),
   );
   return counts.reduce((a, b) => a + b, 0) / counts.length;
@@ -144,7 +147,7 @@ export async function computeKpiForUser(
 // spec, so documented here as a flagged assumption — see README).
 export async function computeEfficiency(userId: string, from: Date, to: Date): Promise<number> {
   const completedTasks = await prisma.task.findMany({
-    where: { assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
+    where: { ...topLevelTaskFilter, assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
     select: { id: true, estimatedHours: true },
   });
   const withEstimate = completedTasks.filter((t) => t.estimatedHours != null && Number(t.estimatedHours) > 0);
@@ -182,8 +185,10 @@ export async function computeWorkloadTrend(userId: string, weeks = 8): Promise<W
     weekStart.setHours(0, 0, 0, 0);
 
     const [assigned, completed] = await Promise.all([
-      prisma.taskAssignee.count({ where: { userId, assignedAt: { gte: weekStart, lte: weekEnd } } }),
-      prisma.task.count({ where: { assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: weekStart, lte: weekEnd } } }),
+      prisma.taskAssignee.count({ where: { userId, assignedAt: { gte: weekStart, lte: weekEnd }, task: topLevelTaskFilter } }),
+      prisma.task.count({
+        where: { ...topLevelTaskFilter, assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: weekStart, lte: weekEnd } },
+      }),
     ]);
     results.push({ weekStart: weekStart.toISOString().slice(0, 10), assigned, completed });
   }
@@ -195,7 +200,7 @@ export async function computeWorkloadTrend(userId: string, weeks = 8): Promise<W
 export async function computeHoursComparison(userId: string, from: Date, to: Date): Promise<{ estimatedHours: number; actualHours: number }> {
   const [completedTasks, actualAgg] = await Promise.all([
     prisma.task.findMany({
-      where: { assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
+      where: { ...topLevelTaskFilter, assignees: { some: { userId } }, status: "COMPLETED", closedAt: { gte: from, lte: to } },
       select: { estimatedHours: true },
     }),
     prisma.timesheetEntry.aggregate({
@@ -236,7 +241,7 @@ export async function computeMemberSummary(
   const [kpi, efficiency, totalTasks, workloadTrend, hours] = await Promise.all([
     computeKpiForUser(userId, from, to, teamAvgVolume, weights),
     computeEfficiency(userId, from, to),
-    prisma.taskAssignee.count({ where: { userId } }),
+    prisma.taskAssignee.count({ where: { userId, task: topLevelTaskFilter } }),
     computeWorkloadTrend(userId, 8),
     computeHoursComparison(userId, from, to),
   ]);

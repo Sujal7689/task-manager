@@ -3,9 +3,9 @@ import { z } from "zod";
 import { Priority, RecurringFrequency, Role, TaskStatus } from "@prisma/client";
 import * as service from "./tasks.service";
 import { AppError } from "../../utils/appError";
-import { parseCsv } from "../../utils/csv";
+import { parseCsv, toCsv } from "../../utils/csv";
 
-const taskSchema = z.object({
+const taskBaseSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   projectId: z.string().optional(),
@@ -29,7 +29,28 @@ const taskSchema = z.object({
   percentComplete: z.number().min(0).max(100).optional(),
   closureRating: z.number().int().min(1).max(5).optional(),
 });
-const updateSchema = taskSchema.partial();
+
+// A sub-task (parentTaskId set) inherits its Project/Milestone from the
+// parent, so this only applies to top-level tasks: picking a Project without
+// a Milestone is how tasks were silently going invisible on the Project/
+// Milestone detail pages (they only ever render tasks nested under a Milestone).
+function requiresMilestoneWithProject(data: { projectId?: string; milestoneId?: string; parentTaskId?: string }) {
+  return !data.projectId || Boolean(data.parentTaskId) || Boolean(data.milestoneId);
+}
+const milestoneRequiredIssue = { message: "Milestone is required when a Project is selected", path: ["milestoneId"] };
+
+// Every task is tagged with the department it belongs to; a sub-task
+// (parentTaskId set) inherits its parent's department instead of asking again.
+function requiresDepartment(data: { departmentId?: string; parentTaskId?: string }) {
+  return Boolean(data.parentTaskId) || Boolean(data.departmentId);
+}
+const departmentRequiredIssue = { message: "Department is required", path: ["departmentId"] };
+
+const taskSchema = taskBaseSchema.refine(requiresMilestoneWithProject, milestoneRequiredIssue).refine(requiresDepartment, departmentRequiredIssue);
+const updateSchema = taskBaseSchema
+  .partial()
+  .refine(requiresMilestoneWithProject, milestoneRequiredIssue)
+  .refine(requiresDepartment, departmentRequiredIssue);
 const progressSchema = z.object({
   status: z.nativeEnum(TaskStatus).optional(),
   percentComplete: z.number().min(0).max(100).optional(),
@@ -94,6 +115,30 @@ export async function bulkImportHandler(req: Request, res: Response) {
   const rows = parseCsv(req.file.buffer.toString("utf-8"));
   if (rows.length === 0) throw new AppError(400, "CSV has no data rows");
   res.json(await service.bulkCreateTasks(rows, req.user!.id));
+}
+
+// Downloadable starter CSV matching bulkImportHandler's expected columns exactly —
+// projectId/milestoneId/departmentId are internal IDs (visible in each entity's
+// list/detail page URL), not names.
+export async function bulkImportTemplateHandler(_req: Request, res: Response) {
+  const csv = toCsv([
+    {
+      name: "Design homepage mockup",
+      projectId: "",
+      milestoneId: "",
+      departmentId: "",
+      priority: "MEDIUM",
+      dueDate: "2026-12-31",
+      estimatedHours: "8",
+      assigneeEmails: "jane@example.com;john@example.com",
+      partyName: "",
+      refId: "",
+      tags: "design;urgent",
+    },
+  ]);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="task-import-template.csv"');
+  res.send(csv);
 }
 
 export async function uploadAttachmentHandler(req: Request, res: Response) {

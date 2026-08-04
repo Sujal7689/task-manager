@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { prisma } from "../config/prisma";
 import { env } from "../config/env";
 import { alreadyNotified, notify } from "../modules/notifications/notifications.service";
+import { topLevelTaskFilter } from "../modules/tasks/tasks.service";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -91,7 +92,7 @@ async function checkOverdue() {
 async function checkMilestonesAtRisk() {
   const milestones = await prisma.milestone.findMany({
     where: { status: { notIn: ["COMPLETED"] }, targetDate: { not: null } },
-    include: { project: true, tasks: { select: { percentComplete: true } } },
+    include: { project: true, tasks: { where: topLevelTaskFilter, select: { percentComplete: true } } },
   });
 
   const now = Date.now();

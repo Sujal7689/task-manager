@@ -73,7 +73,13 @@ export interface Task {
   milestone?: { id: string; name: string } | null;
   parentTaskId?: string | null;
   parentTask?: { id: string; taskNumber: string; name: string } | null;
-  subTasks?: { id: string; taskNumber: string; name: string; status: TaskStatus }[];
+  subTasks?: {
+    id: string;
+    taskNumber: string;
+    name: string;
+    status: TaskStatus;
+    assignees: { userId: string; user: { id: string; name: string } }[];
+  }[];
   attachments?: { id: string; fileName: string; filePath: string; fileSize: number; uploadedAt: string }[];
   categoryId?: string | null;
   subCategoryId?: string | null;
@@ -86,6 +92,7 @@ export interface Task {
   recurringFrequency?: "DAILY" | "WEEKLY" | "MONTHLY" | null;
   companyId?: string | null;
   departmentId?: string | null;
+  department?: { id: string; name: string } | null;
   assignedById: string;
   assignedBy?: { id: string; name: string };
   assignees: { userId: string; user: { id: string; name: string; email: string } }[];

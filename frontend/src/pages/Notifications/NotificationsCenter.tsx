@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
+import { notifyNotificationsChanged } from "../../utils/notificationsBus";
 
 interface Notification {
   id: string;
@@ -24,11 +25,13 @@ export default function NotificationsCenter() {
   async function markRead(id: string) {
     await api.patch(`/notifications/${id}/read`);
     refresh();
+    notifyNotificationsChanged();
   }
 
   async function markAllRead() {
     await api.patch("/notifications/read-all");
     refresh();
+    notifyNotificationsChanged();
   }
 
   return (

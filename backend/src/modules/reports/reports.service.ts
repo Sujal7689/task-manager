@@ -1,6 +1,6 @@
 import { Prisma, Priority, Role, TaskStatus, TimesheetEntryType } from "@prisma/client";
 import { prisma } from "../../config/prisma";
-import { buildTaskFilterWhere, getTaskScopeWhere, TaskFilterInput } from "../tasks/tasks.service";
+import { buildTaskFilterWhere, getTaskScopeWhere, TaskFilterInput, topLevelTaskFilter } from "../tasks/tasks.service";
 import { computeKpiForUser, computeTeamAverageVolume, getEffectiveWeights } from "../kpi/kpi.service";
 import { getLeaderboard } from "../leaderboard/leaderboard.service";
 import { getVisibleTimesheetUserIds, toDate } from "../timesheets/timesheets.service";
@@ -103,6 +103,7 @@ export async function groupedTaskReport(user: AuthUser, filters: GroupedReportFi
     where: {
       AND: [
         scope,
+        topLevelTaskFilter,
         filters.departmentId ? { departmentId: filters.departmentId } : {},
         filters.categoryId ? { categoryId: filters.categoryId } : {},
         filters.status ? { status: filters.status } : {},
@@ -226,6 +227,7 @@ export async function taskSummaryReport(user: AuthUser, filters: ReportFilters) 
   const where = {
     AND: [
       scope,
+      topLevelTaskFilter,
       filters.departmentId ? { departmentId: filters.departmentId } : {},
       filters.from || filters.to ? { createdAt: dateRangeFilter(filters.from, filters.to) } : {},
     ],
@@ -272,7 +274,7 @@ export async function overdueReport(user: AuthUser) {
   const scope = await getTaskScopeWhere(user);
   const now = new Date();
   const tasks = await prisma.task.findMany({
-    where: { AND: [scope, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+    where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
     select: { id: true, taskNumber: true, name: true, dueDate: true, departmentId: true },
   });
 
@@ -294,7 +296,7 @@ export async function departmentRollup() {
     departments.map(async (d) => {
       // A task's department is often only set via its Project (Task.departmentId is optional
       // and rarely filled in directly by the Task form), so match on either.
-      const scopeWhere = { OR: [{ departmentId: d.id }, { project: { departmentId: d.id } }] };
+      const scopeWhere = { ...topLevelTaskFilter, OR: [{ departmentId: d.id }, { project: { departmentId: d.id } }] };
       const [total, completed, overdue] = await Promise.all([
         prisma.task.count({ where: scopeWhere }),
         prisma.task.count({ where: { ...scopeWhere, status: "COMPLETED" } }),

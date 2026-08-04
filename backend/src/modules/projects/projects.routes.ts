@@ -8,12 +8,13 @@ import * as controller from "./projects.controller";
 const router = Router();
 router.use(requireAuth);
 
-const canManage = requireRole(Role.ADMIN, Role.MANAGER);
+const canCreate = requireRole(Role.ADMIN, Role.MANAGER);
+const canEditOrDelete = requireRole(Role.ADMIN);
 
 router.get("/", asyncHandler(controller.listHandler));
 router.get("/:id", asyncHandler(controller.getHandler));
-router.post("/", canManage, asyncHandler(controller.createHandler));
-router.patch("/:id", canManage, asyncHandler(controller.updateHandler));
-router.delete("/:id", canManage, asyncHandler(controller.deleteHandler));
+router.post("/", canCreate, asyncHandler(controller.createHandler));
+router.patch("/:id", canEditOrDelete, asyncHandler(controller.updateHandler));
+router.delete("/:id", canEditOrDelete, asyncHandler(controller.deleteHandler));
 
 export default router;

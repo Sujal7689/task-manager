@@ -5,7 +5,6 @@ interface Status {
   configured: boolean;
   lastSync: { syncedAt: string; status: string } | null;
   recentFailures: number;
-  pollIntervalMinutes: number;
 }
 
 interface SyncLogEntry {
@@ -64,8 +63,7 @@ export default function ZohoIntegration() {
         )}
         {message && <p className="text-sm text-slate-600 mb-2">{message}</p>}
         {status && (
-          <dl className="grid grid-cols-3 gap-3 text-sm">
-            <div><dt className="text-xs text-slate-400">Poll interval</dt><dd>{status.pollIntervalMinutes} min</dd></div>
+          <dl className="grid grid-cols-2 gap-3 text-sm">
             <div><dt className="text-xs text-slate-400">Last sync</dt><dd>{status.lastSync ? new Date(status.lastSync.syncedAt).toLocaleString() : "—"}</dd></div>
             <div><dt className="text-xs text-slate-400">Failures (24h)</dt><dd className={status.recentFailures > 0 ? "text-red-600" : ""}>{status.recentFailures}</dd></div>
           </dl>
