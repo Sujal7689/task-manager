@@ -12,6 +12,8 @@ function errorMessage(err: unknown, fallback: string): string {
 interface EditState {
   id: string;
   name: string;
+  email: string;
+  newPassword: string;
   role: Role;
   companyId: string;
   departmentId: string;
@@ -75,6 +77,8 @@ export default function UserManagement() {
     setEditing({
       id: u.id,
       name: u.name,
+      email: u.email,
+      newPassword: "",
       role: u.role,
       companyId: u.companyId ?? "",
       departmentId: u.departmentId ?? "",
@@ -90,11 +94,13 @@ export default function UserManagement() {
     try {
       await api.patch(`/users/${editing.id}`, {
         name: editing.name,
+        email: editing.email,
         role: editing.role,
         companyId: editing.companyId || null,
         departmentId: editing.departmentId || null,
         reportingManagerId: editing.reportingManagerId || null,
         isZohoFallbackAssignee: editing.isZohoFallbackAssignee,
+        ...(editing.newPassword ? { password: editing.newPassword } : {}),
       });
       setEditing(null);
       refresh();
@@ -158,10 +164,27 @@ export default function UserManagement() {
           <div key={u.id} className="px-4 py-3">
             {editing?.id === u.id ? (
               <form onSubmit={saveEdit} className="grid sm:grid-cols-2 gap-3">
-                <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="input" autoFocus />
+                <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} className="input" autoFocus placeholder="Name" />
+                <input
+                  type="email"
+                  value={editing.email}
+                  onChange={(e) => setEditing({ ...editing, email: e.target.value })}
+                  required
+                  className="input"
+                  placeholder="Email"
+                />
                 <select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })} className="input">
                   {roles.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
+                <input
+                  type="password"
+                  value={editing.newPassword}
+                  onChange={(e) => setEditing({ ...editing, newPassword: e.target.value })}
+                  minLength={8}
+                  placeholder="New password (leave blank to keep current)"
+                  className="input"
+                  autoComplete="new-password"
+                />
                 <select value={editing.companyId} onChange={(e) => setEditing({ ...editing, companyId: e.target.value })} className="input">
                   <option value="">No company</option>
                   {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

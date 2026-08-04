@@ -1,8 +1,8 @@
-import cron from "node-cron";
+import cron, { ScheduledTask } from "node-cron";
 import { prisma } from "../config/prisma";
-import { env } from "../config/env";
 import { alreadyNotified, notify } from "../modules/notifications/notifications.service";
 import { topLevelTaskFilter } from "../modules/tasks/tasks.service";
+import { getEffectiveSettings } from "../modules/config/config.service";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -131,9 +131,20 @@ async function runEscalationChecks() {
   }
 }
 
-export function startEscalationCron() {
-  cron.schedule(env.notificationCronSchedule, runEscalationChecks);
-  console.log(`[escalationCron] scheduled with "${env.notificationCronSchedule}"`);
+let task: ScheduledTask | null = null;
+
+export async function startEscalationCron() {
+  const { notificationCronSchedule } = await getEffectiveSettings();
+  task = cron.schedule(notificationCronSchedule, runEscalationChecks);
+  console.log(`[escalationCron] scheduled with "${notificationCronSchedule}"`);
+}
+
+// Called from the Configuration tab when the schedule changes — replaces the
+// running job without needing a server restart.
+export function rescheduleEscalationCron(schedule: string) {
+  task?.stop();
+  task = cron.schedule(schedule, runEscalationChecks);
+  console.log(`[escalationCron] rescheduled with "${schedule}"`);
 }
 
 export { runEscalationChecks };

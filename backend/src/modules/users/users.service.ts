@@ -63,6 +63,8 @@ export async function createUser(input: CreateUserInput) {
 
 export interface UpdateUserInput {
   name?: string;
+  email?: string;
+  password?: string;
   phone?: string;
   role?: Role;
   departmentId?: string | null;
@@ -74,7 +76,18 @@ export interface UpdateUserInput {
 
 export async function updateUser(id: string, input: UpdateUserInput) {
   await getUser(id);
-  return prisma.user.update({ where: { id }, data: input, select: publicSelect });
+
+  if (input.email) {
+    const existing = await prisma.user.findUnique({ where: { email: input.email } });
+    if (existing && existing.id !== id) throw new AppError(409, "A user with this email already exists");
+  }
+
+  const { password, ...rest } = input;
+  return prisma.user.update({
+    where: { id },
+    data: { ...rest, passwordHash: password ? await bcrypt.hash(password, 10) : undefined },
+    select: publicSelect,
+  });
 }
 
 // Hard delete. Most content (assigned tasks, owned projects/milestones, audit

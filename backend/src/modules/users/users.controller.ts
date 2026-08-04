@@ -17,6 +17,8 @@ const createSchema = z.object({
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  password: z.string().min(8).optional(),
   phone: z.string().optional(),
   role: z.nativeEnum(Role).optional(),
   departmentId: z.string().nullable().optional(),

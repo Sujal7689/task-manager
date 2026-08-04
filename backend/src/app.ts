@@ -21,6 +21,7 @@ import zohoRoutes from "./modules/zoho/zoho.routes";
 import auditLogRoutes from "./modules/auditLog/auditLog.routes";
 import escalationRuleRoutes from "./modules/escalationRules/escalationRules.routes";
 import leadershipRoutes from "./modules/leadership/leadership.routes";
+import configRoutes from "./modules/config/config.routes";
 
 export const app = express();
 
@@ -48,5 +49,6 @@ app.use("/api/admin/zoho", zohoRoutes);
 app.use("/api/admin/audit-log", auditLogRoutes);
 app.use("/api/admin/escalation-rules", escalationRuleRoutes);
 app.use("/api/leadership", leadershipRoutes);
+app.use("/api/admin/config", configRoutes);
 
 app.use(errorHandler);

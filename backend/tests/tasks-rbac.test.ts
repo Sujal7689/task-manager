@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { app } from "../src/app";
+import { prisma } from "../src/config/prisma";
 import { authed, loginAs, uniqueSuffix } from "./helpers";
 
 // Exercises the Section 4 role-scoping rules end-to-end against the real DB:
@@ -17,8 +18,16 @@ describe("task RBAC scoping", () => {
     adminToken = await loginAs("admin@example.com");
     staffToken = await loginAs("staff@example.com");
 
+    // Look up the seeded project by name rather than trusting array order —
+    // other tests/manual runs may have created additional projects, and not
+    // every project is guaranteed to have a milestone.
     const projectsRes = await request(app).get("/api/projects").set(authed(adminToken));
-    projectId = projectsRes.body[0].id;
+    const seedProject = projectsRes.body.find((p: { name: string }) => p.name === "Website Revamp");
+    projectId = seedProject.id;
+    const departmentId = seedProject.departmentId;
+
+    const milestonesRes = await request(app).get("/api/milestones").query({ projectId }).set(authed(adminToken));
+    const milestoneId = milestonesRes.body[0].id;
 
     const usersRes = await request(app).get("/api/users").set(authed(adminToken));
     const staffUser = usersRes.body.find((u: { email: string }) => u.email === "staff@example.com");
@@ -28,13 +37,13 @@ describe("task RBAC scoping", () => {
     const visible = await request(app)
       .post("/api/tasks")
       .set(authed(adminToken))
-      .send({ name: `RBAC visible ${suffix}`, projectId, assigneeIds: [staffUser.id] });
+      .send({ name: `RBAC visible ${suffix}`, projectId, milestoneId, departmentId, assigneeIds: [staffUser.id] });
     visibleTaskId = visible.body.id;
 
     const hidden = await request(app)
       .post("/api/tasks")
       .set(authed(adminToken))
-      .send({ name: `RBAC hidden ${suffix}` , projectId });
+      .send({ name: `RBAC hidden ${suffix}`, projectId, milestoneId, departmentId });
     hiddenTaskId = hidden.body.id;
   });
 
@@ -105,12 +114,20 @@ describe("task RBAC scoping", () => {
         ownerId: managerProfile.body.id,
       });
 
-    const task = await request(app)
-      .post("/api/tasks")
-      .set(authed(adminToken))
-      .send({ name: `Manager scoping task ${uniqueSuffix()}`, projectId: project.body.id }); // no explicit departmentId
+    // Task.departmentId is optional at the schema level (the API now requires
+    // it on create, but existing rows from before that rule may still lack
+    // it) — created directly via Prisma to simulate that legacy shape, since
+    // the API itself no longer allows omitting it.
+    const task = await prisma.task.create({
+      data: {
+        taskNumber: `TEST-${uniqueSuffix()}`,
+        name: `Manager scoping task ${uniqueSuffix()}`,
+        projectId: project.body.id,
+        assignedById: managerProfile.body.id,
+      },
+    });
 
-    const res = await request(app).get(`/api/tasks/${task.body.id}`).set(authed(managerToken));
+    const res = await request(app).get(`/api/tasks/${task.id}`).set(authed(managerToken));
     expect(res.status).toBe(200);
   });
 });

@@ -104,8 +104,25 @@ model User {
   timesheetEntries      TimesheetEntry[]
   notifications         NotificationLog[]
   auditLogs             AuditLog[]     @relation("AuditChangedBy")
+  passwordResetTokens   PasswordResetToken[]
 
   @@map("users")
+}
+
+// Self-service "Forgot password" (login page). A random token is emailed to
+// the user; only its SHA-256 hash is stored here, so a DB leak alone can't
+// be used to reset accounts. Expires quickly (1h) and is single-use.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // ---------- 5.3 Project ----------
@@ -465,6 +482,33 @@ model KpiWeightConfig {
   updatedAt              DateTime @updatedAt
 
   @@map("kpi_weight_configs")
+}
+
+// Admin-editable runtime settings (Configuration tab) — a single global row,
+// always looked up/written via id "singleton". Any field left null here falls
+// back to the matching .env value (see backend/src/modules/config/config.service.ts),
+// so a fresh deploy keeps working off .env until an Admin fills in the UI.
+model AppConfig {
+  id                        String   @id @default("singleton")
+
+  smtpHost                  String?  @map("smtp_host")
+  smtpPort                  Int?     @map("smtp_port")
+  smtpUser                  String?  @map("smtp_user")
+  smtpPassword              String?  @map("smtp_password")
+  smtpFrom                  String?  @map("smtp_from")
+
+  zohoClientId              String?  @map("zoho_client_id")
+  zohoClientSecret          String?  @map("zoho_client_secret")
+  zohoRefreshToken          String?  @map("zoho_refresh_token")
+  zohoAccountsBaseUrl       String?  @map("zoho_accounts_base_url")
+  zohoApiBaseUrl            String?  @map("zoho_api_base_url")
+
+  notificationCronSchedule  String?  @map("notification_cron_schedule")
+  weeklyReportCronSchedule  String?  @map("weekly_report_cron_schedule")
+
+  updatedAt                 DateTime @updatedAt
+
+  @@map("app_config")
 }
 
 // ==================== Phase 5: Zoho CRM Sync ====================

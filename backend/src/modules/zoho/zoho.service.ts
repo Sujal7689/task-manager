@@ -1,7 +1,7 @@
 import { Priority, TaskStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma";
-import { env } from "../../config/env";
 import { notify } from "../notifications/notifications.service";
+import { getEffectiveSettings } from "../config/config.service";
 
 // ---------------------------------------------------------------------------
 // OAuth2 (Section 9, 6.12): this app is a "self client" consumer — the Admin
@@ -17,18 +17,19 @@ async function getAccessToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 30_000) {
     return cachedToken.accessToken;
   }
-  if (!env.zohoClientId || !env.zohoClientSecret || !env.zohoRefreshToken) {
+  const settings = await getEffectiveSettings();
+  if (!settings.zohoClientId || !settings.zohoClientSecret || !settings.zohoRefreshToken) {
     throw new Error("Zoho OAuth credentials are not configured");
   }
 
   const params = new URLSearchParams({
     grant_type: "refresh_token",
-    client_id: env.zohoClientId,
-    client_secret: env.zohoClientSecret,
-    refresh_token: env.zohoRefreshToken,
+    client_id: settings.zohoClientId,
+    client_secret: settings.zohoClientSecret,
+    refresh_token: settings.zohoRefreshToken,
   });
 
-  const res = await fetch(`${env.zohoAccountsBaseUrl}/oauth/v2/token?${params.toString()}`, { method: "POST" });
+  const res = await fetch(`${settings.zohoAccountsBaseUrl}/oauth/v2/token?${params.toString()}`, { method: "POST" });
   if (!res.ok) throw new Error(`Zoho token refresh failed: ${res.status} ${await res.text()}`);
   const data = (await res.json()) as { access_token: string; expires_in: number };
 
@@ -59,11 +60,12 @@ const ZOHO_TASK_FIELDS = ["id", "Subject", "Due_Date", "Status", "Priority", "Ow
 
 async function fetchZohoTasks(): Promise<ZohoTask[]> {
   const token = await getAccessToken();
+  const { zohoApiBaseUrl } = await getEffectiveSettings();
   const all: ZohoTask[] = [];
   let page = 1;
   // Section 6.12 scope: all records from the Tasks module, no filtering.
   while (true) {
-    const res = await fetch(`${env.zohoApiBaseUrl}/crm/v6/Tasks?page=${page}&per_page=200&fields=${ZOHO_TASK_FIELDS}`, {
+    const res = await fetch(`${zohoApiBaseUrl}/crm/v6/Tasks?page=${page}&per_page=200&fields=${ZOHO_TASK_FIELDS}`, {
       headers: { Authorization: `Zoho-oauthtoken ${token}` },
     });
     if (res.status === 204) break; // no more records
@@ -223,7 +225,8 @@ export async function runZohoSync() {
 }
 
 export async function getConnectionStatus() {
-  const configured = Boolean(env.zohoClientId && env.zohoClientSecret && env.zohoRefreshToken);
+  const settings = await getEffectiveSettings();
+  const configured = Boolean(settings.zohoClientId && settings.zohoClientSecret && settings.zohoRefreshToken);
   const lastSync = await prisma.zohoSyncLog.findFirst({ orderBy: { syncedAt: "desc" } });
   const recentFailures = await prisma.zohoSyncLog.count({
     where: { status: "FAILED", syncedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },

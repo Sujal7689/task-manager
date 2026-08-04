@@ -27,14 +27,22 @@ describe("KPI calculation", () => {
       .send({ name: `KPI Test User ${suffix}`, email: userEmail, password: "Password123!", role: "STAFF", companyId: company.companyId, departmentId: company.departmentId });
     userId = createUserRes.body.id;
 
+    // Look up the seeded project by name rather than trusting array order —
+    // other tests/manual runs may have created additional projects, and not
+    // every project is guaranteed to have a milestone.
     const projectsRes = await request(app).get("/api/projects").set(authed(adminToken));
-    projectId = projectsRes.body[0].id;
+    const seedProject = projectsRes.body.find((p: { name: string }) => p.name === "Website Revamp");
+    projectId = seedProject.id;
+    const departmentId = seedProject.departmentId;
+
+    const milestonesRes = await request(app).get("/api/milestones").query({ projectId }).set(authed(adminToken));
+    const milestoneId = milestonesRes.body[0].id;
 
     const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const taskRes = await request(app)
       .post("/api/tasks")
       .set(authed(adminToken))
-      .send({ name: `KPI task ${suffix}`, projectId, assigneeIds: [userId], estimatedHours: 2, dueDate });
+      .send({ name: `KPI task ${suffix}`, projectId, milestoneId, departmentId, assigneeIds: [userId], estimatedHours: 2, dueDate });
     taskId = taskRes.body.id;
 
     // Log exactly the estimated hours today, so estimate accuracy should be ~100.

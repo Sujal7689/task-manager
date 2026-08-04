@@ -5,6 +5,6 @@ import { startWeeklyReportCron } from "./jobs/weeklyReportCron";
 
 app.listen(env.port, () => {
   console.log(`Backend listening on port ${env.port}`);
-  startEscalationCron();
-  startWeeklyReportCron();
+  startEscalationCron().catch((err) => console.error("[escalationCron] failed to start:", err));
+  startWeeklyReportCron().catch((err) => console.error("[weeklyReportCron] failed to start:", err));
 });

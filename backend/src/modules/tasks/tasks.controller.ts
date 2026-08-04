@@ -41,16 +41,26 @@ const milestoneRequiredIssue = { message: "Milestone is required when a Project 
 
 // Every task is tagged with the department it belongs to; a sub-task
 // (parentTaskId set) inherits its parent's department instead of asking again.
-function requiresDepartment(data: { departmentId?: string; parentTaskId?: string }) {
+// Only applies to creation — a top-level task must be given one up front.
+function requiresDepartmentOnCreate(data: { departmentId?: string; parentTaskId?: string }) {
+  return Boolean(data.parentTaskId) || Boolean(data.departmentId);
+}
+// On update, only relevant if departmentId is actually present in this
+// request — a partial edit that doesn't touch it (e.g. just changing status)
+// shouldn't be forced to resend a field it isn't changing.
+function requiresDepartmentOnUpdate(data: { departmentId?: string | null; parentTaskId?: string }) {
+  if (!("departmentId" in data)) return true;
   return Boolean(data.parentTaskId) || Boolean(data.departmentId);
 }
 const departmentRequiredIssue = { message: "Department is required", path: ["departmentId"] };
 
-const taskSchema = taskBaseSchema.refine(requiresMilestoneWithProject, milestoneRequiredIssue).refine(requiresDepartment, departmentRequiredIssue);
+const taskSchema = taskBaseSchema
+  .refine(requiresMilestoneWithProject, milestoneRequiredIssue)
+  .refine(requiresDepartmentOnCreate, departmentRequiredIssue);
 const updateSchema = taskBaseSchema
   .partial()
   .refine(requiresMilestoneWithProject, milestoneRequiredIssue)
-  .refine(requiresDepartment, departmentRequiredIssue);
+  .refine(requiresDepartmentOnUpdate, departmentRequiredIssue);
 const progressSchema = z.object({
   status: z.nativeEnum(TaskStatus).optional(),
   percentComplete: z.number().min(0).max(100).optional(),

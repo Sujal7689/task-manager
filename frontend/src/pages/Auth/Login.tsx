@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
 export default function Login() {
@@ -47,7 +47,12 @@ export default function Login() {
           className="w-full mb-4 rounded-lg border border-slate-300 px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-slate-900"
         />
 
-        <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-sm font-medium text-slate-700">Password</label>
+          <Link to="/forgot-password" className="text-xs text-slate-500 hover:underline">
+            Forgot password?
+          </Link>
+        </div>
         <input
           type="password"
           value={password}
