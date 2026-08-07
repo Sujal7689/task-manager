@@ -71,10 +71,20 @@ export async function getTaskScopeWhere(user: AuthUser): Promise<Prisma.TaskWher
   }
 }
 
+// Derived from the highest existing number, not a row count — a count-based
+// scheme collides with an already-used taskNumber (hitting the DB's unique
+// constraint) the moment any task is ever deleted, since the count then
+// undershoots the true next number. taskNumber is zero-padded to a fixed
+// width, so lexicographic and numeric ordering agree.
 async function generateTaskNumber(): Promise<string> {
   const prefix = "T-";
-  const count = await prisma.task.count({ where: { taskNumber: { startsWith: prefix } } });
-  return `${prefix}${String(count + 1).padStart(4, "0")}`;
+  const last = await prisma.task.findFirst({
+    where: { taskNumber: { startsWith: prefix } },
+    orderBy: { taskNumber: "desc" },
+    select: { taskNumber: true },
+  });
+  const lastSeq = last ? parseInt(last.taskNumber.slice(prefix.length), 10) || 0 : 0;
+  return `${prefix}${String(lastSeq + 1).padStart(4, "0")}`;
 }
 
 // Shared filter set for both the interactive Task List and the Task Detail
