@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { Department } from "../../types";
+import { useToast } from "../../context/ToastContext";
 
 interface Weights {
   onTimeWeight: number | string;
@@ -18,6 +19,7 @@ interface EscalationRule {
 }
 
 export default function KpiEscalationConfig() {
+  const { showToast } = useToast();
   const [weights, setWeights] = useState<Weights>({ onTimeWeight: 40, estimateAccuracyWeight: 25, volumeWeight: 20, qualityWeight: 15 });
   const [rules, setRules] = useState<EscalationRule[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -53,6 +55,7 @@ export default function KpiEscalationConfig() {
       notifyDepartmentHead: notifyHead,
     });
     refresh();
+    showToast("Escalation rule added.");
   }
 
   async function deleteRule(id: string) {

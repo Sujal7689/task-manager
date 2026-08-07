@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { Category, Company, Department, Priority, Project, TaskStatus, User } from "../../types";
+import Pagination from "../../components/Pagination";
+import SearchInput from "../../components/SearchInput";
 
 const statuses: TaskStatus[] = ["NOT_STARTED", "IN_PROGRESS", "ON_HOLD", "UNDER_REVIEW", "COMPLETED", "CANCELLED"];
 const priorities: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
@@ -46,6 +48,8 @@ export default function TaskDetailReportSection() {
   const [status, setStatus] = useState("");
   const [overdue, setOverdue] = useState(false);
   const [overdueDays, setOverdueDays] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -54,6 +58,7 @@ export default function TaskDetailReportSection() {
   const [users, setUsers] = useState<User[]>([]);
   const [rows, setRows] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageInfo, setPageInfo] = useState({ page: 1, totalPages: 1, total: 0, pageSize: 25 });
 
   useEffect(() => {
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
@@ -76,22 +81,32 @@ export default function TaskDetailReportSection() {
     status: status || undefined,
     overdue: overdue || undefined,
     overdueDays: overdueDays || undefined,
+    search: search || undefined,
   };
 
   function refresh() {
     setLoading(true);
     api
-      .get<TaskRow[]>("/reports/task-detail", { params })
-      .then((res) => setRows(res.data))
+      .get<{ data: TaskRow[]; total: number; page: number; pageSize: number; totalPages: number }>("/reports/task-detail", {
+        params: { ...params, page, pageSize: pageInfo.pageSize },
+      })
+      .then((res) => {
+        setRows(res.data.data);
+        setPageInfo({ page: res.data.page, totalPages: res.data.totalPages, total: res.data.total, pageSize: res.data.pageSize });
+      })
       .finally(() => setLoading(false));
   }
 
-  useEffect(refresh, [from, to, assigneeId, assignedById, projectId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays]);
+  useEffect(refresh, [from, to, assigneeId, assignedById, projectId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays, search, page]);
 
   function clearFilters() {
     setFrom(""); setTo(""); setAssigneeId(""); setAssignedById(""); setProjectId(""); setCompanyId("");
-    setDepartmentId(""); setCategoryId(""); setPriority(""); setStatus(""); setOverdue(false); setOverdueDays("");
+    setDepartmentId(""); setCategoryId(""); setPriority(""); setStatus(""); setOverdue(false); setOverdueDays(""); setSearch("");
   }
+
+  // Any filter/search change starts back at page 1 (page itself is excluded
+  // from this effect's deps, so it doesn't fight with Pagination's onPageChange).
+  useEffect(() => setPage(1), [from, to, assigneeId, assignedById, projectId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays, search]);
 
   const activeCount = Object.values(params).filter(Boolean).length;
 
@@ -100,6 +115,7 @@ export default function TaskDetailReportSection() {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-lg font-semibold text-slate-900">Task Detail Report</h2>
         <div className="flex items-center gap-3">
+          <SearchInput value={search} onChange={setSearch} placeholder="Search by task ID or name..." className="input max-w-xs" />
           {activeCount > 0 && (
             <button onClick={clearFilters} className="text-sm text-slate-500 hover:underline">Clear filters</button>
           )}
@@ -188,7 +204,7 @@ export default function TaskDetailReportSection() {
         </label>
       </div>
 
-      <p className="text-sm text-slate-500 mb-2">{rows.length} task(s) match this filter.</p>
+      <p className="text-sm text-slate-500 mb-2">{pageInfo.total} task(s) match this filter.</p>
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
         <table className="w-full text-sm">
@@ -233,6 +249,7 @@ export default function TaskDetailReportSection() {
         </table>
         {!loading && rows.length === 0 && <p className="px-4 py-6 text-sm text-slate-400">No tasks match this filter.</p>}
         {loading && <p className="px-4 py-6 text-sm text-slate-400">Loading...</p>}
+        <Pagination page={pageInfo.page} totalPages={pageInfo.totalPages} total={pageInfo.total} pageSize={pageInfo.pageSize} onPageChange={setPage} />
       </div>
     </div>
   );

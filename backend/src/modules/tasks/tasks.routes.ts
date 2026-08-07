@@ -10,8 +10,8 @@ import * as controller from "./tasks.controller";
 const router = Router();
 router.use(requireAuth);
 
-const canCreateEdit = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD);
-const canDelete = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD);
+const canCreateEdit = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD, Role.STAFF);
+const canDelete = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD, Role.STAFF);
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const { upload: attachmentUpload } = makeUploader("tasks");
 

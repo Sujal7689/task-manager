@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { User } from "../../types";
+import { useToast } from "../../context/ToastContext";
 
 interface Comment {
   id: string;
@@ -11,6 +12,7 @@ interface Comment {
 }
 
 export default function CommentsPanel({ taskId }: { taskId: string }) {
+  const { showToast } = useToast();
   const [comments, setComments] = useState<Comment[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [body, setBody] = useState("");
@@ -32,6 +34,7 @@ export default function CommentsPanel({ taskId }: { taskId: string }) {
     setBody("");
     setMentionedUserIds([]);
     refresh();
+    showToast("Comment posted.");
   }
 
   function toggleMention(userId: string) {

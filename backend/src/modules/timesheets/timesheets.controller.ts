@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { TimesheetEntryType } from "@prisma/client";
 import * as service from "./timesheets.service";
+import { parsePagination, parseSearch, toPaginated } from "../../utils/pagination";
 
 const rangeSchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const manualEntrySchema = z.object({
@@ -12,7 +13,16 @@ const manualEntrySchema = z.object({
 
 export async function myTimesheetHandler(req: Request, res: Response) {
   const { from, to } = rangeSchema.parse(req.query);
-  res.json(await service.getUserTimesheet(req.user!.id, from, to));
+  const pagination = parsePagination(req.query);
+  if (!pagination) {
+    return res.json(await service.getUserTimesheet(req.user!.id, from, to));
+  }
+  const search = parseSearch(req.query);
+  const { items, total } = (await service.getUserTimesheet(req.user!.id, from, to, { ...pagination, search })) as {
+    items: unknown[];
+    total: number;
+  };
+  res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }
 
 export async function createManualEntryHandler(req: Request, res: Response) {
@@ -24,5 +34,14 @@ export async function createManualEntryHandler(req: Request, res: Response) {
 
 export async function teamTimesheetHandler(req: Request, res: Response) {
   const { from, to } = rangeSchema.parse(req.query);
-  res.json(await service.getTeamTimesheet(req.user!, from, to));
+  const pagination = parsePagination(req.query);
+  if (!pagination) {
+    return res.json(await service.getTeamTimesheet(req.user!, from, to));
+  }
+  const search = parseSearch(req.query);
+  const { items, total } = (await service.getTeamTimesheet(req.user!, from, to, { ...pagination, search })) as {
+    items: unknown[];
+    total: number;
+  };
+  res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }

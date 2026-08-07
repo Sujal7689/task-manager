@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../context/ToastContext";
 import { Company, Department, Milestone, MilestoneStatus, Project, ProjectStatus, User } from "../../types";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -16,6 +17,7 @@ export default function ProjectDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [project, setProject] = useState<(Project & { milestones: Milestone[] }) | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -64,6 +66,7 @@ export default function ProjectDetail() {
     setName("");
     setShowForm(false);
     refresh();
+    showToast("Milestone created.");
   }
 
   function startEditProject() {
@@ -96,6 +99,7 @@ export default function ProjectDetail() {
       });
       setEditingProject(false);
       refresh();
+      showToast("Project saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update project."));
     }
@@ -135,6 +139,7 @@ export default function ProjectDetail() {
       });
       setEditingMilestoneId(null);
       refresh();
+      showToast("Milestone saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update milestone."));
     }

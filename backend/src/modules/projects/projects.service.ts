@@ -1,12 +1,23 @@
-import { ProjectStatus } from "@prisma/client";
+import { Prisma, ProjectStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
 
-export const listProjects = () =>
-  prisma.project.findMany({
-    include: { company: true, department: true, owner: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-  });
+export async function listProjects(options?: { skip: number; take: number; search?: string }) {
+  const where: Prisma.ProjectWhereInput = options?.search
+    ? { name: { contains: options.search, mode: "insensitive" } }
+    : {};
+  const include = { company: true, department: true, owner: { select: { id: true, name: true } } };
+  const orderBy = { createdAt: "desc" as const };
+
+  if (!options) {
+    return prisma.project.findMany({ where, include, orderBy });
+  }
+  const [items, total] = await Promise.all([
+    prisma.project.findMany({ where, include, orderBy, skip: options.skip, take: options.take }),
+    prisma.project.count({ where }),
+  ]);
+  return { items, total };
+}
 
 export async function getProject(id: string) {
   const project = await prisma.project.findUnique({

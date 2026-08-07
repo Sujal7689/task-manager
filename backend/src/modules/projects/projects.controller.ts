@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { ProjectStatus } from "@prisma/client";
 import * as service from "./projects.service";
+import { parsePagination, parseSearch, toPaginated } from "../../utils/pagination";
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -14,8 +15,14 @@ const createSchema = z.object({
 });
 const updateSchema = createSchema.partial();
 
-export async function listHandler(_req: Request, res: Response) {
-  res.json(await service.listProjects());
+export async function listHandler(req: Request, res: Response) {
+  const pagination = parsePagination(req.query);
+  if (!pagination) {
+    return res.json(await service.listProjects());
+  }
+  const search = parseSearch(req.query);
+  const { items, total } = (await service.listProjects({ ...pagination, search })) as { items: unknown[]; total: number };
+  res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }
 export async function getHandler(req: Request, res: Response) {
   res.json(await service.getProject(req.params.id));

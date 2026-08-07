@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { Category, Department, Milestone, Priority, Project, Task, User } from "../../types";
+import { useToast } from "../../context/ToastContext";
 
 const priorities: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
@@ -15,6 +16,7 @@ export default function TaskForm() {
   const isEdit = Boolean(id);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -109,12 +111,15 @@ export default function TaskForm() {
     try {
       if (isEdit) {
         await api.patch(`/tasks/${id}`, payload);
+        showToast("Task saved.");
         navigate(`/tasks/${id}`);
       } else if (parentTaskId) {
         await api.post("/tasks", payload);
+        showToast("Sub-task created.");
         navigate(`/tasks/${parentTaskId}?tab=Sub-tasks`);
       } else {
         const res = await api.post("/tasks", payload);
+        showToast("Task created.");
         navigate(`/tasks/${res.data.id}`);
       }
     } catch (err) {

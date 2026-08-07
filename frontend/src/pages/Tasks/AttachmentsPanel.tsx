@@ -1,8 +1,10 @@
 import { ChangeEvent, useRef, useState } from "react";
 import { api, apiBaseUrl } from "../../api/client";
 import { Task } from "../../types";
+import { useToast } from "../../context/ToastContext";
 
 export default function AttachmentsPanel({ task, onChanged }: { task: Task; onChanged: () => void }) {
+  const { showToast } = useToast();
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachments = task.attachments ?? [];
@@ -16,6 +18,7 @@ export default function AttachmentsPanel({ task, onChanged }: { task: Task; onCh
       formData.append("file", file);
       await api.post(`/tasks/${task.id}/attachments`, formData, { headers: { "Content-Type": "multipart/form-data" } });
       onChanged();
+      showToast("Attachment uploaded.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";

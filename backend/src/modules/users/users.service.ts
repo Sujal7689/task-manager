@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { Role, UserStatus } from "@prisma/client";
+import { Prisma, Role, UserStatus } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
 import { withFriendlyDeleteError } from "../../utils/prismaErrors";
@@ -18,8 +18,18 @@ const publicSelect = {
   isZohoFallbackAssignee: true,
 } as const;
 
-export async function listUsers() {
-  return prisma.user.findMany({ select: publicSelect, orderBy: { name: "asc" } });
+export async function listUsers(options?: { skip: number; take: number; search?: string }) {
+  const where: Prisma.UserWhereInput = options?.search
+    ? { OR: [{ name: { contains: options.search, mode: "insensitive" } }, { email: { contains: options.search, mode: "insensitive" } }] }
+    : {};
+  if (!options) {
+    return prisma.user.findMany({ where, select: publicSelect, orderBy: { name: "asc" } });
+  }
+  const [items, total] = await Promise.all([
+    prisma.user.findMany({ where, select: publicSelect, orderBy: { name: "asc" }, skip: options.skip, take: options.take }),
+    prisma.user.count({ where }),
+  ]);
+  return { items, total };
 }
 
 export async function getUser(id: string) {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Priority, TaskStatus, TimesheetEntryType } from "@prisma/client";
 import * as service from "./reports.service";
 import { toCsv } from "../../utils/csv";
+import { parsePagination, toPaginated } from "../../utils/pagination";
 
 const filtersSchema = z.object({
   from: z.string().optional(),
@@ -31,6 +32,7 @@ const taskDetailFiltersSchema = filtersSchema.extend({
   overdue: z.coerce.boolean().optional(),
   overdueDays: z.coerce.number().int().min(0).optional(),
   managerId: z.string().optional(),
+  search: z.string().optional(),
 });
 
 const timesheetFiltersSchema = z.object({
@@ -60,8 +62,12 @@ function respond(res: Response, rows: Record<string, unknown>[], format: "json" 
 
 export async function taskDetailHandler(req: Request, res: Response) {
   const filters = taskDetailFiltersSchema.parse(req.query);
-  const tasks = await service.taskDetailReport(req.user!, filters);
+
+  // CSV export always fetches the full unpaginated set (a report export
+  // should never be silently truncated to one page); only the on-screen
+  // JSON table paginates.
   if (filters.format === "csv") {
+    const tasks = await service.taskDetailReportAll(req.user!, filters);
     const rows = tasks.map((t) => ({
       taskNumber: t.taskNumber,
       name: t.name,
@@ -80,7 +86,13 @@ export async function taskDetailHandler(req: Request, res: Response) {
     }));
     return respond(res, rows, "csv", "task-detail-report");
   }
-  res.json(tasks);
+
+  const pagination = parsePagination(req.query);
+  if (!pagination) {
+    return res.json(await service.taskDetailReportAll(req.user!, filters));
+  }
+  const { items, total } = await service.taskDetailReportPage(req.user!, filters, pagination);
+  res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }
 
 export async function groupedHandler(req: Request, res: Response) {

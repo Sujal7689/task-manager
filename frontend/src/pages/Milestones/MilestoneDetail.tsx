@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../context/ToastContext";
 import { Milestone, MilestoneStatus, Task, User } from "../../types";
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -15,6 +16,7 @@ export default function MilestoneDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [milestone, setMilestone] = useState<(Milestone & { tasks: Task[]; project: { id: string; name: string } }) | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,7 @@ export default function MilestoneDetail() {
       });
       setEditing(false);
       refresh();
+      showToast("Milestone saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update milestone."));
     }

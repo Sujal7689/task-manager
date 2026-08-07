@@ -4,6 +4,7 @@ import { Priority, RecurringFrequency, Role, TaskStatus } from "@prisma/client";
 import * as service from "./tasks.service";
 import { AppError } from "../../utils/appError";
 import { parseCsv, toCsv } from "../../utils/csv";
+import { parsePagination, toPaginated } from "../../utils/pagination";
 
 const taskBaseSchema = z.object({
   name: z.string().min(1),
@@ -80,11 +81,20 @@ const listQuerySchema = z.object({
   overdueDays: z.coerce.number().int().min(0).optional(),
   dueWithinDays: z.coerce.number().int().min(0).optional(),
   managerId: z.string().optional(),
+  search: z.string().optional(),
+  sortBy: z.enum(service.taskSortFields).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional(),
 });
 
 export async function listHandler(req: Request, res: Response) {
-  const query = listQuerySchema.parse(req.query);
-  res.json(await service.listTasks(req.user!, query));
+  const { sortBy, sortDir, ...query } = listQuerySchema.parse(req.query);
+  const sort = { field: sortBy, dir: sortDir };
+  const pagination = parsePagination(req.query);
+  if (!pagination) {
+    return res.json(await service.listTasks(req.user!, query, undefined, sort));
+  }
+  const { items, total } = (await service.listTasks(req.user!, query, pagination, sort)) as { items: unknown[]; total: number };
+  res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }
 
 export async function getHandler(req: Request, res: Response) {

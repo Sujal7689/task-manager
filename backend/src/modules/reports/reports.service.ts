@@ -72,26 +72,44 @@ async function getSpentHoursByTask(taskIds: string[]): Promise<Map<string, numbe
 // department, company, category, priority, overdue/overdue-days, team) so a
 // dashboard/report number can drill down into exactly this list. Includes
 // `spentHours` (actual hours logged) alongside `estimatedHours` on each task.
-export async function taskDetailReport(user: AuthUser, filters: TaskDetailFilters) {
+async function taskDetailWhere(user: AuthUser, filters: TaskDetailFilters) {
   const scope = await getTaskScopeWhere(user);
   const filterClauses = await buildTaskFilterWhere(filters);
-  const tasks = await prisma.task.findMany({
-    where: {
-      AND: [scope, ...filterClauses, filters.from || filters.to ? { createdAt: dateRangeFilter(filters.from, filters.to) } : {}],
-    },
-    include: {
-      project: { select: { name: true } },
-      milestone: { select: { name: true } },
-      category: { select: { name: true } },
-      department: { select: { name: true } },
-      assignedBy: { select: { name: true } },
-      assignees: { include: { user: { select: { name: true } } } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  return {
+    AND: [scope, ...filterClauses, filters.from || filters.to ? { createdAt: dateRangeFilter(filters.from, filters.to) } : {}],
+  };
+}
 
+const taskDetailInclude = {
+  project: { select: { name: true } },
+  milestone: { select: { name: true } },
+  category: { select: { name: true } },
+  department: { select: { name: true } },
+  assignedBy: { select: { name: true } },
+  assignees: { include: { user: { select: { name: true } } } },
+} satisfies Prisma.TaskInclude;
+
+async function withSpentHours<T extends { id: string }>(tasks: T[]) {
   const spentByTask = await getSpentHoursByTask(tasks.map((t) => t.id));
   return tasks.map((t) => ({ ...t, spentHours: spentByTask.get(t.id) ?? 0 }));
+}
+
+// Full, unpaginated result — used for CSV export, which must never be
+// silently truncated to one page.
+export async function taskDetailReportAll(user: AuthUser, filters: TaskDetailFilters) {
+  const where = await taskDetailWhere(user, filters);
+  const tasks = await prisma.task.findMany({ where, include: taskDetailInclude, orderBy: { createdAt: "desc" } });
+  return withSpentHours(tasks);
+}
+
+// Paginated result — used for the on-screen report table.
+export async function taskDetailReportPage(user: AuthUser, filters: TaskDetailFilters, page: { skip: number; take: number }) {
+  const where = await taskDetailWhere(user, filters);
+  const [tasks, total] = await Promise.all([
+    prisma.task.findMany({ where, include: taskDetailInclude, orderBy: { createdAt: "desc" }, skip: page.skip, take: page.take }),
+    prisma.task.count({ where }),
+  ]);
+  return { items: await withSpentHours(tasks), total };
 }
 
 // Grouped task report — employee/team/project/company/department, filterable.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
+import SearchInput from "../../components/SearchInput";
 
 interface Entry {
   id: string;
@@ -22,10 +23,11 @@ export default function TeamTimesheet() {
   });
   const [to, setTo] = useState(() => toISO(new Date()));
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
-    api.get<Entry[]>("/timesheets/team", { params: { from, to } }).then((res) => setEntries(res.data));
-  }, [from, to]);
+    api.get<Entry[]>("/timesheets/team", { params: { from, to, search: search || undefined } }).then((res) => setEntries(res.data));
+  }, [from, to, search]);
 
   const byUser = useMemo(() => {
     const map = new Map<string, { name: string; total: number; taskHours: number }>();
@@ -40,7 +42,10 @@ export default function TeamTimesheet() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-slate-900 mb-6">Team Timesheet</h1>
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+        <h1 className="text-2xl font-semibold text-slate-900">Team Timesheet</h1>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by employee or task..." className="input max-w-xs" />
+      </div>
 
       <div className="flex items-center gap-3 mb-6">
         <label className="text-sm text-slate-600">

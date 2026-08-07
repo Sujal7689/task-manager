@@ -1,12 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { Company, Department, Project, User } from "../../types";
+import Pagination from "../../components/Pagination";
+import SearchInput from "../../components/SearchInput";
+import { useToast } from "../../context/ToastContext";
 
 export default function ProjectList() {
   const { user } = useAuth();
+  const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [pageInfo, setPageInfo] = useState({ page: 1, totalPages: 1, total: 0, pageSize: 25 });
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -18,13 +24,37 @@ export default function ProjectList() {
   const [error, setError] = useState<string | null>(null);
 
   const canManage = user?.role === "ADMIN" || user?.role === "MANAGER";
+  const search = searchParams.get("search") ?? "";
+  const page = Number(searchParams.get("page")) || 1;
 
-  function refresh() {
-    api.get<Project[]>("/projects").then((res) => setProjects(res.data));
+  function setSearch(value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set("search", value);
+    else next.delete("search");
+    next.delete("page");
+    setSearchParams(next, { replace: true });
   }
 
+  function setPage(nextPage: number) {
+    const next = new URLSearchParams(searchParams);
+    next.set("page", String(nextPage));
+    setSearchParams(next, { replace: true });
+  }
+
+  function refresh() {
+    api
+      .get<{ data: Project[]; total: number; page: number; pageSize: number; totalPages: number }>("/projects", {
+        params: { page, pageSize: pageInfo.pageSize, search: search || undefined },
+      })
+      .then((res) => {
+        setProjects(res.data.data);
+        setPageInfo({ page: res.data.page, totalPages: res.data.totalPages, total: res.data.total, pageSize: res.data.pageSize });
+      });
+  }
+
+  useEffect(refresh, [searchParams]);
+
   useEffect(() => {
-    refresh();
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
     api.get<Department[]>("/departments").then((res) => setDepartments(res.data));
     api.get<User[]>("/users").then((res) => setUsers(res.data));
@@ -38,6 +68,7 @@ export default function ProjectList() {
       setName("");
       setShowForm(false);
       refresh();
+      showToast("Project created.");
     } catch {
       setError("Could not create project. Check all fields are filled.");
     }
@@ -45,8 +76,9 @@ export default function ProjectList() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold text-slate-900">Projects</h1>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search projects..." className="input max-w-xs" />
         {canManage && (
           <button
             onClick={() => setShowForm((v) => !v)}
@@ -103,6 +135,11 @@ export default function ProjectList() {
         ))}
         {projects.length === 0 && <p className="text-slate-400 text-sm">No projects yet.</p>}
       </div>
+      {pageInfo.totalPages > 1 && (
+        <div className="bg-white border border-slate-200 rounded-xl mt-3">
+          <Pagination page={pageInfo.page} totalPages={pageInfo.totalPages} total={pageInfo.total} pageSize={pageInfo.pageSize} onPageChange={setPage} />
+        </div>
+      )}
     </div>
   );
 }

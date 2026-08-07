@@ -64,7 +64,10 @@ export async function getTaskScopeWhere(user: AuthUser): Promise<Prisma.TaskWher
     }
     case Role.STAFF:
     default:
-      return { assignees: { some: { userId: user.id } } };
+      // Staff can now create tasks too, so visibility has to include tasks
+      // they created — not just ones assigned to them — or a Staff member
+      // immediately loses access to a task the moment they create it.
+      return { OR: [{ assignedById: user.id }, { assignees: { some: { userId: user.id } } }] };
   }
 }
 
@@ -91,6 +94,7 @@ export interface TaskFilterInput {
   overdueDays?: number; // minimum days overdue; implies overdue
   dueWithinDays?: number; // due between now and now+N days (e.g. 0 = "due today", 7 = "due this week")
   managerId?: string; // "team" — tasks assigned to this manager's direct reports (+ self)
+  search?: string; // free-text match against task number or name
 }
 
 export async function buildTaskFilterWhere(filters: TaskFilterInput): Promise<Prisma.TaskWhereInput[]> {
@@ -111,6 +115,15 @@ export async function buildTaskFilterWhere(filters: TaskFilterInput): Promise<Pr
   }
   if (filters.companyId) {
     clauses.push({ OR: [{ companyId: filters.companyId }, { project: { companyId: filters.companyId } }] });
+  }
+
+  if (filters.search) {
+    clauses.push({
+      OR: [
+        { name: { contains: filters.search, mode: "insensitive" } },
+        { taskNumber: { contains: filters.search, mode: "insensitive" } },
+      ],
+    });
   }
 
   if (filters.managerId) {
@@ -137,11 +150,61 @@ export async function buildTaskFilterWhere(filters: TaskFilterInput): Promise<Pr
   return clauses;
 }
 
-export async function listTasks(user: AuthUser, filters: TaskFilterInput) {
+// Allowlist only — sortBy comes from user-controlled query params, so it must
+// map through a fixed set of Prisma orderBy shapes rather than being used directly.
+export const taskSortFields = [
+  "taskNumber",
+  "name",
+  "project",
+  "milestone",
+  "department",
+  "dueDate",
+  "priority",
+  "status",
+  "percentComplete",
+  "createdAt",
+] as const;
+export type TaskSortField = (typeof taskSortFields)[number];
+
+function taskOrderBy(sortBy?: TaskSortField, sortDir: "asc" | "desc" = "asc"): Prisma.TaskOrderByWithRelationInput {
+  switch (sortBy) {
+    case "project":
+      return { project: { name: sortDir } };
+    case "milestone":
+      return { milestone: { name: sortDir } };
+    case "department":
+      return { department: { name: sortDir } };
+    case "taskNumber":
+    case "name":
+    case "dueDate":
+    case "priority":
+    case "status":
+    case "percentComplete":
+    case "createdAt":
+      return { [sortBy]: sortDir };
+    default:
+      return { createdAt: "desc" };
+  }
+}
+
+export async function listTasks(
+  user: AuthUser,
+  filters: TaskFilterInput,
+  page?: { skip: number; take: number },
+  sort?: { field?: TaskSortField; dir?: "asc" | "desc" },
+) {
   const scope = await getTaskScopeWhere(user);
   const filterClauses = await buildTaskFilterWhere(filters);
   const where: Prisma.TaskWhereInput = { AND: [scope, ...filterClauses] };
-  return prisma.task.findMany({ where, include: taskInclude, orderBy: { createdAt: "desc" } });
+  const orderBy = taskOrderBy(sort?.field, sort?.dir);
+  if (!page) {
+    return prisma.task.findMany({ where, include: taskInclude, orderBy });
+  }
+  const [items, total] = await Promise.all([
+    prisma.task.findMany({ where, include: taskInclude, orderBy, skip: page.skip, take: page.take }),
+    prisma.task.count({ where }),
+  ]);
+  return { items, total };
 }
 
 export async function getTask(id: string, user: AuthUser) {
@@ -197,6 +260,8 @@ async function resolveHierarchy(input: TaskInput) {
   if (input.parentTaskId) {
     const parent = await prisma.task.findUnique({ where: { id: input.parentTaskId } });
     if (!parent) throw new AppError(400, "Parent task not found");
+    // Sub-tasks are one level deep only — a sub-task cannot itself be a parent.
+    if (parent.parentTaskId) throw new AppError(400, "A sub-task cannot have its own sub-tasks");
     projectId = projectId ?? parent.projectId ?? undefined;
     milestoneId = milestoneId ?? parent.milestoneId ?? undefined;
     // A sub-task belongs to the same department as its parent unless overridden.
@@ -277,6 +342,16 @@ export async function updateTask(id: string, input: Partial<TaskInput>) {
 
   if (input.status === "COMPLETED" && existing.status !== "COMPLETED" && hasUnresolvedSubTasks(existing.subTasks)) {
     throw new AppError(400, "All sub-tasks must be completed (or cancelled) before this task can be marked Completed");
+  }
+
+  // Sub-tasks are one level deep only, enforced on update too (createTask's
+  // check alone wouldn't stop someone re-parenting an existing task via PATCH).
+  if (input.parentTaskId) {
+    if (input.parentTaskId === id) throw new AppError(400, "A task cannot be its own parent");
+    const newParent = await prisma.task.findUnique({ where: { id: input.parentTaskId } });
+    if (!newParent) throw new AppError(400, "Parent task not found");
+    if (newParent.parentTaskId) throw new AppError(400, "A sub-task cannot have its own sub-tasks");
+    if (existing.subTasks.length > 0) throw new AppError(400, "A task with existing sub-tasks cannot itself become a sub-task");
   }
 
   let projectId = input.projectId ?? existing.projectId ?? undefined;

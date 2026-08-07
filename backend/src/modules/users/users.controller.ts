@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { Role, UserStatus } from "@prisma/client";
 import * as usersService from "./users.service";
+import { parsePagination, parseSearch, toPaginated } from "../../utils/pagination";
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -28,8 +29,14 @@ const updateSchema = z.object({
   isZohoFallbackAssignee: z.boolean().optional(),
 });
 
-export async function listHandler(_req: Request, res: Response) {
-  res.json(await usersService.listUsers());
+export async function listHandler(req: Request, res: Response) {
+  const pagination = parsePagination(req.query);
+  if (!pagination) {
+    return res.json(await usersService.listUsers());
+  }
+  const search = parseSearch(req.query);
+  const { items, total } = (await usersService.listUsers({ ...pagination, search })) as { items: unknown[]; total: number };
+  res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }
 
 export async function getHandler(req: Request, res: Response) {

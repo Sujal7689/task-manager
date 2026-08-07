@@ -1,6 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { Company, Department, Role, User } from "../../types";
+import Pagination from "../../components/Pagination";
+import SearchInput from "../../components/SearchInput";
+import { useToast } from "../../context/ToastContext";
 
 const roles: Role[] = ["ADMIN", "MANAGER", "TEAM_LEAD", "STAFF"];
 
@@ -22,7 +25,12 @@ interface EditState {
 }
 
 export default function UserManagement() {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]); // unpaginated, for the reporting-manager picker
+  const [pageInfo, setPageInfo] = useState({ page: 1, totalPages: 1, total: 0, pageSize: 25 });
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -39,11 +47,25 @@ export default function UserManagement() {
   const [isFallback, setIsFallback] = useState(false);
 
   function refresh() {
-    api.get<User[]>("/users").then((res) => setUsers(res.data));
+    api
+      .get<{ data: User[]; total: number; page: number; pageSize: number; totalPages: number }>("/users", {
+        params: { page, pageSize: pageInfo.pageSize, search: search || undefined },
+      })
+      .then((res) => {
+        setUsers(res.data.data);
+        setPageInfo({ page: res.data.page, totalPages: res.data.totalPages, total: res.data.total, pageSize: res.data.pageSize });
+      });
+    api.get<User[]>("/users").then((res) => setAllUsers(res.data));
+  }
+
+  useEffect(refresh, [page, search]);
+
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    setPage(1);
   }
 
   useEffect(() => {
-    refresh();
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
     api.get<Department[]>("/departments").then((res) => setDepartments(res.data));
   }, []);
@@ -62,6 +84,7 @@ export default function UserManagement() {
       setShowForm(false);
       setName(""); setEmail(""); setPassword("");
       refresh();
+      showToast("User created.");
     } catch {
       setError("Could not create user (email may already be in use).");
     }
@@ -104,6 +127,7 @@ export default function UserManagement() {
       });
       setEditing(null);
       refresh();
+      showToast("User saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update user."));
     }
@@ -122,8 +146,9 @@ export default function UserManagement() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h2 className="font-medium text-slate-900">Users</h2>
+        <SearchInput value={search} onChange={handleSearchChange} placeholder="Search by name or email..." className="input max-w-xs" />
         <button onClick={() => setShowForm((v) => !v)} className="text-sm font-medium bg-slate-900 text-white px-3 py-1.5 rounded-lg">
           {showForm ? "Cancel" : "+ Add user"}
         </button>
@@ -149,7 +174,7 @@ export default function UserManagement() {
           </select>
           <select value={reportingManagerId} onChange={(e) => setReportingManagerId(e.target.value)} className="input">
             <option value="">Reporting Manager (optional)</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {allUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={isFallback} onChange={(e) => setIsFallback(e.target.checked)} />
@@ -195,7 +220,7 @@ export default function UserManagement() {
                 </select>
                 <select value={editing.reportingManagerId} onChange={(e) => setEditing({ ...editing, reportingManagerId: e.target.value })} className="input">
                   <option value="">No reporting manager</option>
-                  {users.filter((u2) => u2.id !== u.id).map((u2) => <option key={u2.id} value={u2.id}>{u2.name}</option>)}
+                  {allUsers.filter((u2) => u2.id !== u.id).map((u2) => <option key={u2.id} value={u2.id}>{u2.name}</option>)}
                 </select>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -230,6 +255,7 @@ export default function UserManagement() {
             )}
           </div>
         ))}
+        <Pagination page={pageInfo.page} totalPages={pageInfo.totalPages} total={pageInfo.total} pageSize={pageInfo.pageSize} onPageChange={setPage} />
       </div>
     </div>
   );

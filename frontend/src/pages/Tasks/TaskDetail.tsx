@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { useToast } from "../../context/ToastContext";
 import { Task, TaskStatus } from "../../types";
 import ActivityLogPanel from "./ActivityLogPanel";
 import CommentsPanel from "./CommentsPanel";
@@ -25,6 +26,7 @@ export default function TaskDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [searchParams] = useSearchParams();
   const [task, setTask] = useState<Task | null>(null);
   const [tab, setTab] = useState<Tab>(() => {
@@ -33,14 +35,19 @@ export default function TaskDetail() {
   });
   const [saving, setSaving] = useState(false);
   const [progressError, setProgressError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const canFullyEdit = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
-  const canDelete = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
+  const canFullyEdit = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD" || user?.role === "STAFF";
+  const canDelete = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD" || user?.role === "STAFF";
   const isAssignee = task?.assignees.some((a) => a.userId === user?.id);
   const openSubTasks = task?.subTasks?.filter((st) => st.status !== "COMPLETED" && st.status !== "CANCELLED") ?? [];
 
   function refresh() {
-    api.get<Task>(`/tasks/${id}`).then((res) => setTask(res.data));
+    setLoadError(null);
+    api
+      .get<Task>(`/tasks/${id}`)
+      .then((res) => setTask(res.data))
+      .catch((err) => setLoadError(errorMessage(err, "Could not load this task.")));
   }
 
   useEffect(refresh, [id]);
@@ -66,9 +73,18 @@ export default function TaskDetail() {
 
   async function handleClone() {
     const res = await api.post(`/tasks/${id}/clone`);
+    showToast("Task cloned.");
     navigate(`/tasks/${res.data.id}`);
   }
 
+  if (loadError) {
+    return (
+      <div>
+        <Link to="/tasks" className="text-sm text-slate-500 hover:underline">← Back to Tasks</Link>
+        <div className="mt-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{loadError}</div>
+      </div>
+    );
+  }
   if (!task) return <div className="text-slate-500">Loading...</div>;
 
   return (
@@ -193,7 +209,7 @@ export default function TaskDetail() {
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm text-slate-500">{task.parentTask ? `Parent: ${task.parentTask.name}` : "Top-level task"}</p>
-            {canFullyEdit && (
+            {canFullyEdit && !task.parentTask && (
               <Link to={`/tasks/new?parentTaskId=${task.id}`} className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 + Add sub-task
               </Link>

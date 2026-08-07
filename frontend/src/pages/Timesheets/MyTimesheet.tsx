@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
+import SearchInput from "../../components/SearchInput";
+import { useToast } from "../../context/ToastContext";
 
 interface Entry {
   id: string;
@@ -20,8 +22,10 @@ function toISO(d: Date) {
 }
 
 export default function MyTimesheet() {
+  const { showToast } = useToast();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [date, setDate] = useState(toISO(new Date()));
   const [hours, setHours] = useState("1");
@@ -34,16 +38,19 @@ export default function MyTimesheet() {
   }, [weekStart]);
 
   function refresh() {
-    api.get<Entry[]>("/timesheets/mine", { params: { from: toISO(weekStart), to: toISO(weekEnd) } }).then((res) => setEntries(res.data));
+    api
+      .get<Entry[]>("/timesheets/mine", { params: { from: toISO(weekStart), to: toISO(weekEnd), search: search || undefined } })
+      .then((res) => setEntries(res.data));
   }
 
-  useEffect(refresh, [weekStart]);
+  useEffect(refresh, [weekStart, search]);
 
   async function handleAddEntry(e: FormEvent) {
     e.preventDefault();
     await api.post("/timesheets/manual-entry", { date, hoursLogged: Number(hours), entryType });
     setShowForm(false);
     refresh();
+    showToast("Time entry logged.");
   }
 
   const byDate = useMemo(() => {
@@ -66,8 +73,9 @@ export default function MyTimesheet() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold text-slate-900">My Timesheet</h1>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by task name..." className="input max-w-xs" />
         <button onClick={() => setShowForm((v) => !v)} className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg">
           {showForm ? "Cancel" : "+ Log non-task time"}
         </button>

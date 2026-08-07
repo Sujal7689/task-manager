@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { Category, Company, Department } from "../../types";
+import { useToast } from "../../context/ToastContext";
 
 function errorMessage(err: unknown, fallback: string): string {
   const axiosErr = err as { response?: { data?: { error?: string } } };
@@ -8,6 +9,7 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export default function MasterData() {
+  const { showToast } = useToast();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -35,6 +37,7 @@ export default function MasterData() {
     await api.post("/companies", { name: companyName });
     setCompanyName("");
     refresh();
+    showToast("Company added.");
   }
   async function saveCompany(e: FormEvent) {
     e.preventDefault();
@@ -44,6 +47,7 @@ export default function MasterData() {
       await api.patch(`/companies/${editingCompany.id}`, { name: editingCompany.name });
       setEditingCompany(null);
       refresh();
+      showToast("Company saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update company."));
     }
@@ -64,6 +68,7 @@ export default function MasterData() {
     await api.post("/departments", { name: deptName, companyId: deptCompanyId });
     setDeptName("");
     refresh();
+    showToast("Department added.");
   }
   async function saveDepartment(e: FormEvent) {
     e.preventDefault();
@@ -73,6 +78,7 @@ export default function MasterData() {
       await api.patch(`/departments/${editingDept.id}`, { name: editingDept.name, companyId: editingDept.companyId });
       setEditingDept(null);
       refresh();
+      showToast("Department saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update department."));
     }
@@ -93,6 +99,7 @@ export default function MasterData() {
     await api.post("/categories", { name: categoryName, parentId: categoryParentId || undefined });
     setCategoryName("");
     refresh();
+    showToast("Category added.");
   }
   async function saveCategory(e: FormEvent) {
     e.preventDefault();
@@ -105,6 +112,7 @@ export default function MasterData() {
       });
       setEditingCategory(null);
       refresh();
+      showToast("Category saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update category."));
     }

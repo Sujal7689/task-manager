@@ -5,6 +5,8 @@ import { useAuth } from "../../context/AuthContext";
 import { Category, Company, Department, Project, Task, TaskStatus, User } from "../../types";
 import KanbanBoard from "./KanbanBoard";
 import CalendarView from "./CalendarView";
+import Pagination from "../../components/Pagination";
+import SearchInput from "../../components/SearchInput";
 
 const statuses: TaskStatus[] = ["NOT_STARTED", "IN_PROGRESS", "ON_HOLD", "UNDER_REVIEW", "COMPLETED", "CANCELLED"];
 const views = ["List", "Kanban", "Calendar"] as const;
@@ -30,6 +32,7 @@ const FILTER_KEYS = [
   "overdue",
   "overdueDays",
   "managerId",
+  "search",
 ] as const;
 
 export default function TaskList() {
@@ -38,6 +41,7 @@ export default function TaskList() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("List");
+  const [pageInfo, setPageInfo] = useState({ page: 1, totalPages: 1, total: 0, pageSize: 25 });
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [importResult, setImportResult] = useState<{ created: number; errors: { row: number; message: string }[] } | null>(null);
   const [importing, setImporting] = useState(false);
@@ -49,7 +53,7 @@ export default function TaskList() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
-  const canCreate = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
+  const canCreate = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD" || user?.role === "STAFF";
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {};
@@ -64,6 +68,7 @@ export default function TaskList() {
     const next = new URLSearchParams(searchParams);
     if (value) next.set(key, value);
     else next.delete(key);
+    next.delete("page"); // any filter change starts back at page 1
     setSearchParams(next, { replace: true });
   }
 
@@ -71,15 +76,49 @@ export default function TaskList() {
     setSearchParams({}, { replace: true });
   }
 
+  const page = Number(searchParams.get("page")) || 1;
+
+  function setPage(nextPage: number) {
+    const next = new URLSearchParams(searchParams);
+    next.set("page", String(nextPage));
+    setSearchParams(next, { replace: true });
+  }
+
+  const sortBy = searchParams.get("sortBy") ?? "createdAt";
+  const sortDir = (searchParams.get("sortDir") as "asc" | "desc") ?? "desc";
+
+  function toggleSort(field: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set("sortBy", field);
+    next.set("sortDir", sortBy === field && sortDir === "asc" ? "desc" : "asc");
+    next.delete("page"); // sorting starts back at page 1, same as any other filter change
+    setSearchParams(next, { replace: true });
+  }
+
   function refresh() {
     setLoading(true);
+    // Kanban/Calendar are spatial views (grouped by status/date), not a flat
+    // list — paginating them would silently hide cards rather than truncate
+    // a scrollable list, so only the List view requests a page at a time.
+    // Sorting is likewise a List-only concept — Kanban groups by status and
+    // Calendar groups by date, so a column sort order wouldn't apply there.
+    const params = view === "List" ? { ...filters, page, pageSize: pageInfo.pageSize, sortBy, sortDir } : filters;
     api
-      .get<Task[]>("/tasks", { params: filters })
-      .then((res) => setTasks(res.data))
+      .get<Task[] | { data: Task[]; total: number; page: number; pageSize: number; totalPages: number }>("/tasks", { params })
+      .then((res) => {
+        if (Array.isArray(res.data)) {
+          const data = res.data;
+          setTasks(data);
+          setPageInfo((p) => ({ ...p, page: 1, totalPages: 1, total: data.length }));
+        } else {
+          setTasks(res.data.data);
+          setPageInfo({ page: res.data.page, totalPages: res.data.totalPages, total: res.data.total, pageSize: res.data.pageSize });
+        }
+      })
       .finally(() => setLoading(false));
   }
 
-  useEffect(refresh, [searchParams]);
+  useEffect(refresh, [searchParams, view]);
 
   useEffect(() => {
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
@@ -157,16 +196,24 @@ export default function TaskList() {
         </div>
       )}
 
-      <div className="flex gap-2 mb-4">
-        {views.map((v) => (
-          <button
-            key={v}
-            onClick={() => setView(v)}
-            className={`text-sm px-3 py-1.5 rounded-lg ${view === v ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
-          >
-            {v}
-          </button>
-        ))}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="flex gap-2">
+          {views.map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`text-sm px-3 py-1.5 rounded-lg ${view === v ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+        <SearchInput
+          value={filters.search ?? ""}
+          onChange={(v) => setFilter("search", v)}
+          placeholder="Search by task ID or name..."
+          className="input max-w-xs"
+        />
       </div>
 
       <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -240,16 +287,17 @@ export default function TaskList() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                <th className="px-4 py-2">Task ID</th>
-                <th className="px-4 py-2">Task Name</th>
-                <th className="px-4 py-2">Project</th>
-                <th className="px-4 py-2">Department</th>
-                <th className="px-4 py-2">Due Date</th>
+                <SortableHeader label="Task ID" field="taskNumber" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Task Name" field="name" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Project" field="project" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Milestone" field="milestone" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Department" field="department" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Due Date" field="dueDate" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
                 <th className="px-4 py-2">Assigned To</th>
                 <th className="px-4 py-2">Assigned By</th>
-                <th className="px-4 py-2">Priority</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">%</th>
+                <SortableHeader label="Priority" field="priority" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="%" field="percentComplete" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} align="right" />
               </tr>
             </thead>
             <tbody>
@@ -265,6 +313,7 @@ export default function TaskList() {
                     </Link>
                   </td>
                   <td className="px-4 py-2 text-slate-600">{t.project?.name ?? "—"}</td>
+                  <td className="px-4 py-2 text-slate-600">{t.milestone?.name ?? "—"}</td>
                   <td className="px-4 py-2 text-slate-600">{t.department?.name ?? "—"}</td>
                   <td className={`px-4 py-2 ${isOverdue(t) ? "text-red-600 font-medium" : "text-slate-600"}`}>
                     {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}
@@ -283,6 +332,7 @@ export default function TaskList() {
             </tbody>
           </table>
           {tasks.length === 0 && <p className="px-4 py-6 text-sm text-slate-400">No tasks found for this filter.</p>}
+          <Pagination page={pageInfo.page} totalPages={pageInfo.totalPages} total={pageInfo.total} pageSize={pageInfo.pageSize} onPageChange={setPage} />
         </div>
       ) : view === "Kanban" ? (
         <KanbanBoard tasks={tasks} />
@@ -290,6 +340,35 @@ export default function TaskList() {
         <CalendarView tasks={tasks} />
       )}
     </div>
+  );
+}
+
+function SortableHeader({
+  label,
+  field,
+  sortBy,
+  sortDir,
+  onSort,
+  align,
+}: {
+  label: string;
+  field: string;
+  sortBy: string;
+  sortDir: "asc" | "desc";
+  onSort: (field: string) => void;
+  align?: "right";
+}) {
+  const active = sortBy === field;
+  return (
+    <th className={`px-4 py-2 ${align === "right" ? "text-right" : ""}`}>
+      <button
+        onClick={() => onSort(field)}
+        className={`inline-flex items-center gap-1 hover:text-slate-700 ${active ? "text-slate-700" : ""}`}
+      >
+        {label}
+        <span className="text-slate-300">{active ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}</span>
+      </button>
+    </th>
   );
 }
 
