@@ -76,15 +76,35 @@ export async function getTaskScopeWhere(user: AuthUser): Promise<Prisma.TaskWher
 // constraint) the moment any task is ever deleted, since the count then
 // undershoots the true next number. taskNumber is zero-padded to a fixed
 // width, so lexicographic and numeric ordering agree.
+// Scoped to top-level tasks only (parentTaskId: null) — sub-tasks live in
+// their own per-parent sequence (see generateSubTaskNumber) and must not
+// feed into or consume this counter.
 async function generateTaskNumber(): Promise<string> {
   const prefix = "T-";
   const last = await prisma.task.findFirst({
-    where: { taskNumber: { startsWith: prefix } },
+    where: { taskNumber: { startsWith: prefix }, parentTaskId: null },
     orderBy: { taskNumber: "desc" },
     select: { taskNumber: true },
   });
   const lastSeq = last ? parseInt(last.taskNumber.slice(prefix.length), 10) || 0 : 0;
   return `${prefix}${String(lastSeq + 1).padStart(4, "0")}`;
+}
+
+// Sub-tasks are numbered per-parent (e.g. T-0012-1, T-0012-2, ...) instead of
+// pulling from the shared top-level counter, so a sub-task's number always
+// reads as "belongs to T-0012" and creating/deleting sub-tasks under one
+// parent never perturbs top-level numbering. Siblings are fetched and
+// compared numerically (not via DB string ordering) since "-10" would
+// otherwise sort before "-2" lexicographically once a parent passes 9 sub-tasks.
+async function generateSubTaskNumber(parentTaskId: string, parentTaskNumber: string): Promise<string> {
+  const prefix = `${parentTaskNumber}-`;
+  const siblings = await prisma.task.findMany({ where: { parentTaskId }, select: { taskNumber: true } });
+  const maxSeq = siblings.reduce((max, s) => {
+    if (!s.taskNumber.startsWith(prefix)) return max;
+    const n = parseInt(s.taskNumber.slice(prefix.length), 10);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0);
+  return `${prefix}${maxSeq + 1}`;
 }
 
 // Shared filter set for both the interactive Task List and the Task Detail
@@ -260,6 +280,7 @@ function closedAtPatch(previousStatus: TaskStatus, nextStatus?: TaskStatus) {
 
 async function resolveHierarchy(input: TaskInput) {
   let { projectId, milestoneId, departmentId } = input;
+  let parentTaskNumber: string | undefined;
 
   if (milestoneId) {
     const milestone = await prisma.milestone.findUnique({ where: { id: milestoneId } });
@@ -276,18 +297,22 @@ async function resolveHierarchy(input: TaskInput) {
     milestoneId = milestoneId ?? parent.milestoneId ?? undefined;
     // A sub-task belongs to the same department as its parent unless overridden.
     departmentId = departmentId ?? parent.departmentId ?? undefined;
+    parentTaskNumber = parent.taskNumber;
   }
 
   if (!projectId && !input.parentTaskId) {
     throw new AppError(400, "A task must belong to a Project or Milestone, or be a sub-task of another Task");
   }
 
-  return { projectId, milestoneId, departmentId };
+  return { projectId, milestoneId, departmentId, parentTaskNumber };
 }
 
 export async function createTask(input: TaskInput, assignedById: string) {
-  const { projectId, milestoneId, departmentId } = await resolveHierarchy(input);
-  const taskNumber = await generateTaskNumber();
+  const { projectId, milestoneId, departmentId, parentTaskNumber } = await resolveHierarchy(input);
+  const taskNumber =
+    input.parentTaskId && parentTaskNumber
+      ? await generateSubTaskNumber(input.parentTaskId, parentTaskNumber)
+      : await generateTaskNumber();
 
   const task = await prisma.task.create({
     data: {
