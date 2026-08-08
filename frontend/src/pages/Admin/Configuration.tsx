@@ -26,6 +26,7 @@ export default function Configuration() {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState("");
@@ -65,7 +66,9 @@ export default function Configuration() {
   }
 
   async function save(section: string, body: Record<string, unknown>) {
+    if (saving) return;
     setError(null);
+    setSaving(true);
     try {
       await api.put("/admin/config", body);
       flashSaved(section);
@@ -75,6 +78,8 @@ export default function Configuration() {
       setZohoRefreshTokenInput("");
     } catch (err) {
       setError(errorMessage(err, "Could not save configuration."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -154,7 +159,9 @@ export default function Configuration() {
             onClear={() => clearSecret("smtpPassword", "SMTP password")}
           />
           <ConfigField label="From Address" value={smtpFrom} onChange={setSmtpFrom} overridden={config.overrides.smtpFrom} />
-          <button type="submit" className="bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium">Save Email settings</button>
+          <button type="submit" disabled={saving} className="bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium disabled:opacity-50">
+            {saving ? "Saving..." : "Save Email settings"}
+          </button>
           {saved === "email" && <span className="text-sm text-green-600 ml-3">Saved.</span>}
         </form>
       </section>
@@ -199,7 +206,9 @@ export default function Configuration() {
           <p className="text-xs text-slate-400">
             Not on the US data center? Both base URLs need to match your Zoho account's region (e.g. zoho.eu, zoho.in, zoho.com.au, zoho.jp).
           </p>
-          <button type="submit" className="bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium">Save Zoho settings</button>
+          <button type="submit" disabled={saving} className="bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium disabled:opacity-50">
+            {saving ? "Saving..." : "Save Zoho settings"}
+          </button>
           {saved === "zoho" && <span className="text-sm text-green-600 ml-3">Saved.</span>}
         </form>
       </section>
@@ -222,8 +231,8 @@ export default function Configuration() {
             overridden={config.overrides.weeklyReportCronSchedule}
             placeholder="0 8 * * 1"
           />
-          <button type="submit" className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium w-fit">
-            Save schedules
+          <button type="submit" disabled={saving} className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium w-fit disabled:opacity-50">
+            {saving ? "Saving..." : "Save schedules"}
           </button>
           {saved === "schedules" && <span className="text-sm text-green-600 ml-3">Saved.</span>}
         </form>

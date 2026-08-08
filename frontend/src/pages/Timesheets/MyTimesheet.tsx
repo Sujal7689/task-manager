@@ -30,6 +30,7 @@ export default function MyTimesheet() {
   const [date, setDate] = useState(toISO(new Date()));
   const [hours, setHours] = useState("1");
   const [entryType, setEntryType] = useState<"MEETING" | "ADMIN" | "LEAVE" | "BREAK">("ADMIN");
+  const [saving, setSaving] = useState(false);
 
   const weekEnd = useMemo(() => {
     const d = new Date(weekStart);
@@ -47,10 +48,16 @@ export default function MyTimesheet() {
 
   async function handleAddEntry(e: FormEvent) {
     e.preventDefault();
-    await api.post("/timesheets/manual-entry", { date, hoursLogged: Number(hours), entryType });
-    setShowForm(false);
-    refresh();
-    showToast("Time entry logged.");
+    if (saving) return;
+    setSaving(true);
+    try {
+      await api.post("/timesheets/manual-entry", { date, hoursLogged: Number(hours), entryType });
+      setShowForm(false);
+      refresh();
+      showToast("Time entry logged.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const byDate = useMemo(() => {
@@ -107,7 +114,9 @@ export default function MyTimesheet() {
             <option value="BREAK">Break</option>
           </select>
           <input type="number" step="0.25" value={hours} onChange={(e) => setHours(e.target.value)} className="input" />
-          <button type="submit" className="col-span-3 bg-slate-900 text-white rounded-lg py-2 font-medium">Add</button>
+          <button type="submit" disabled={saving} className="col-span-3 bg-slate-900 text-white rounded-lg py-2 font-medium disabled:opacity-50">
+            {saving ? "Adding..." : "Add"}
+          </button>
         </form>
       )}
 

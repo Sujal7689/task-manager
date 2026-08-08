@@ -36,6 +36,8 @@ export default function UserManagement() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -72,7 +74,9 @@ export default function UserManagement() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
+    setSaving(true);
     try {
       await api.post("/users", {
         name, email, password, role,
@@ -87,6 +91,8 @@ export default function UserManagement() {
       showToast("User created.");
     } catch {
       setError("Could not create user (email may already be in use).");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -112,8 +118,9 @@ export default function UserManagement() {
 
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
-    if (!editing) return;
+    if (!editing || savingEdit) return;
     setError(null);
+    setSavingEdit(true);
     try {
       await api.patch(`/users/${editing.id}`, {
         name: editing.name,
@@ -130,6 +137,8 @@ export default function UserManagement() {
       showToast("User saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update user."));
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -180,7 +189,9 @@ export default function UserManagement() {
             <input type="checkbox" checked={isFallback} onChange={(e) => setIsFallback(e.target.checked)} />
             Zoho Fallback Assignee
           </label>
-          <button type="submit" className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium">Create user</button>
+          <button type="submit" disabled={saving} className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium disabled:opacity-50">
+            {saving ? "Creating..." : "Create user"}
+          </button>
         </form>
       )}
 
@@ -231,7 +242,9 @@ export default function UserManagement() {
                   Zoho Fallback Assignee
                 </label>
                 <div className="sm:col-span-2 flex gap-2">
-                  <button type="submit" className="bg-slate-900 text-white rounded-lg px-4 py-1.5 text-sm font-medium">Save</button>
+                  <button type="submit" disabled={savingEdit} className="bg-slate-900 text-white rounded-lg px-4 py-1.5 text-sm font-medium disabled:opacity-50">
+                    {savingEdit ? "Saving..." : "Save"}
+                  </button>
                   <button type="button" onClick={() => setEditing(null)} className="text-sm text-slate-500 px-2">Cancel</button>
                 </div>
               </form>

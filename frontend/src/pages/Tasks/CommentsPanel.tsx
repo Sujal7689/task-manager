@@ -17,6 +17,7 @@ export default function CommentsPanel({ taskId }: { taskId: string }) {
   const [users, setUsers] = useState<User[]>([]);
   const [body, setBody] = useState("");
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
 
   function refresh() {
     api.get<Comment[]>(`/comments/task/${taskId}`).then((res) => setComments(res.data));
@@ -29,12 +30,17 @@ export default function CommentsPanel({ taskId }: { taskId: string }) {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!body.trim()) return;
-    await api.post("/comments", { taskId, body, mentionedUserIds });
-    setBody("");
-    setMentionedUserIds([]);
-    refresh();
-    showToast("Comment posted.");
+    if (!body.trim() || saving) return;
+    setSaving(true);
+    try {
+      await api.post("/comments", { taskId, body, mentionedUserIds });
+      setBody("");
+      setMentionedUserIds([]);
+      refresh();
+      showToast("Comment posted.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function toggleMention(userId: string) {
@@ -71,8 +77,8 @@ export default function CommentsPanel({ taskId }: { taskId: string }) {
               </button>
             ))}
           </div>
-          <button type="submit" className="text-sm font-medium bg-slate-900 text-white px-4 py-2 rounded-lg">
-            Post
+          <button type="submit" disabled={saving} className="text-sm font-medium bg-slate-900 text-white px-4 py-2 rounded-lg disabled:opacity-50">
+            {saving ? "Posting..." : "Post"}
           </button>
         </div>
       </form>

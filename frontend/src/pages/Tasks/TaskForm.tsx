@@ -25,6 +25,7 @@ export default function TaskForm() {
   const [users, setUsers] = useState<User[]>([]);
   const [parentTask, setParentTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -90,7 +91,9 @@ export default function TaskForm() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
+    setSaving(true);
     const payload = {
       name,
       description: description || undefined,
@@ -124,6 +127,8 @@ export default function TaskForm() {
       }
     } catch (err) {
       setError(errorMessage(err, "Could not save task. A Project or Milestone (or parent task) is required."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -270,8 +275,12 @@ export default function TaskForm() {
           </div>
         </Section>
 
-        <button type="submit" className="w-full bg-slate-900 text-white rounded-lg py-2.5 font-medium hover:bg-slate-800">
-          {isEdit ? "Save changes" : parentTaskId ? "Create sub-task" : "Create task"}
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full bg-slate-900 text-white rounded-lg py-2.5 font-medium hover:bg-slate-800 disabled:opacity-50"
+        >
+          {saving ? "Saving..." : isEdit ? "Save changes" : parentTaskId ? "Create sub-task" : "Create task"}
         </button>
       </form>
     </div>

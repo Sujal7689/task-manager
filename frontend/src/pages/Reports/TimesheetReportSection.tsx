@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import { Company, Department, Project, Task, User } from "../../types";
+import { Company, Department, Milestone, Project, Task, User } from "../../types";
 
 type GroupBy = "employee" | "task" | "project" | "department";
 
@@ -55,6 +55,7 @@ export default function TimesheetReportSection() {
   const [employeeId, setEmployeeId] = useState("");
   const [taskId, setTaskId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [milestoneId, setMilestoneId] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [entryType, setEntryType] = useState("");
@@ -64,6 +65,7 @@ export default function TimesheetReportSection() {
   const [users, setUsers] = useState<User[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
 
@@ -75,6 +77,7 @@ export default function TimesheetReportSection() {
     api.get<User[]>("/users").then((res) => setUsers(res.data));
     api.get<Task[]>("/tasks").then((res) => setTasks(res.data));
     api.get<Project[]>("/projects").then((res) => setProjects(res.data));
+    api.get<Milestone[]>("/milestones").then((res) => setMilestones(res.data));
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
     api.get<Department[]>("/departments").then((res) => setDepartments(res.data));
   }, []);
@@ -83,6 +86,7 @@ export default function TimesheetReportSection() {
     employeeId: employeeId || undefined,
     taskId: taskId || undefined,
     projectId: projectId || undefined,
+    milestoneId: milestoneId || undefined,
     companyId: companyId || undefined,
     departmentId: departmentId || undefined,
     entryType: entryType || undefined,
@@ -103,10 +107,16 @@ export default function TimesheetReportSection() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(refresh, [groupBy, employeeId, taskId, projectId, companyId, departmentId, entryType, from, to]);
+  useEffect(refresh, [groupBy, employeeId, taskId, projectId, milestoneId, companyId, departmentId, entryType, from, to]);
+
+  function setProject(value: string) {
+    setProjectId(value);
+    // A milestone from the old project wouldn't apply to the newly selected one.
+    setMilestoneId("");
+  }
 
   function clearFilters() {
-    setEmployeeId(""); setTaskId(""); setProjectId(""); setCompanyId("");
+    setEmployeeId(""); setTaskId(""); setProjectId(""); setMilestoneId(""); setCompanyId("");
     setDepartmentId(""); setEntryType(""); setFrom(""); setTo("");
   }
   const activeCount = Object.values(params).filter(Boolean).length;
@@ -135,7 +145,7 @@ export default function TimesheetReportSection() {
         ))}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-3 lg:grid-cols-8 gap-3">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-3 lg:grid-cols-9 gap-3">
         <label className="block">
           <span className="text-xs text-slate-500 block mb-1">From</span>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input" />
@@ -160,9 +170,16 @@ export default function TimesheetReportSection() {
         </label>
         <label className="block">
           <span className="text-xs text-slate-500 block mb-1">Project</span>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
+          <select value={projectId} onChange={(e) => setProject(e.target.value)} className="input">
             <option value="">All</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs text-slate-500 block mb-1">Milestone</span>
+          <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)} className="input">
+            <option value="">All</option>
+            {milestones.filter((m) => !projectId || m.projectId === projectId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </label>
         <label className="block">

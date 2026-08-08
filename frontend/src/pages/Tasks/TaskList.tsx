@@ -2,7 +2,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
-import { Category, Company, Department, Project, Task, TaskStatus, User } from "../../types";
+import { Category, Company, Department, Milestone, Project, Task, TaskStatus, User } from "../../types";
 import KanbanBoard from "./KanbanBoard";
 import CalendarView from "./CalendarView";
 import Pagination from "../../components/Pagination";
@@ -50,6 +50,7 @@ export default function TaskList() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
 
@@ -69,6 +70,19 @@ export default function TaskList() {
     if (value) next.set(key, value);
     else next.delete(key);
     next.delete("page"); // any filter change starts back at page 1
+    setSearchParams(next, { replace: true });
+  }
+
+  // Combines the projectId change and the milestoneId clear into a single
+  // setSearchParams call — two separate setFilter() calls back to back would
+  // each read the same stale `searchParams` closure and the second call
+  // would silently overwrite the first's projectId change.
+  function setProjectFilter(value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set("projectId", value);
+    else next.delete("projectId");
+    next.delete("milestoneId"); // a milestone from the old project wouldn't apply to the new one
+    next.delete("page");
     setSearchParams(next, { replace: true });
   }
 
@@ -124,6 +138,7 @@ export default function TaskList() {
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
     api.get<Department[]>("/departments").then((res) => setDepartments(res.data));
     api.get<Project[]>("/projects").then((res) => setProjects(res.data));
+    api.get<Milestone[]>("/milestones").then((res) => setMilestones(res.data));
     api.get<Category[]>("/categories").then((res) => setCategories(res.data));
     api.get<User[]>("/users").then((res) => setUsers(res.data));
   }, []);
@@ -262,7 +277,20 @@ export default function TaskList() {
         <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <FilterSelect label="Assigned To" value={filters.assigneeId ?? ""} onChange={(v) => setFilter("assigneeId", v)} options={users.map((u) => ({ value: u.id, label: u.name }))} />
           <FilterSelect label="Assigned From" value={filters.assignedById ?? ""} onChange={(v) => setFilter("assignedById", v)} options={users.map((u) => ({ value: u.id, label: u.name }))} />
-          <FilterSelect label="Project" value={filters.projectId ?? ""} onChange={(v) => setFilter("projectId", v)} options={projects.map((p) => ({ value: p.id, label: p.name }))} />
+          <FilterSelect
+            label="Project"
+            value={filters.projectId ?? ""}
+            onChange={(v) => setProjectFilter(v)}
+            options={projects.map((p) => ({ value: p.id, label: p.name }))}
+          />
+          <FilterSelect
+            label="Milestone"
+            value={filters.milestoneId ?? ""}
+            onChange={(v) => setFilter("milestoneId", v)}
+            options={milestones
+              .filter((m) => !filters.projectId || m.projectId === filters.projectId)
+              .map((m) => ({ value: m.id, label: m.name }))}
+          />
           <FilterSelect label="Company" value={filters.companyId ?? ""} onChange={(v) => setFilter("companyId", v)} options={companies.map((c) => ({ value: c.id, label: c.name }))} />
           <FilterSelect label="Department" value={filters.departmentId ?? ""} onChange={(v) => setFilter("departmentId", v)} options={departments.map((d) => ({ value: d.id, label: d.name }))} />
           <FilterSelect label="Category" value={filters.categoryId ?? ""} onChange={(v) => setFilter("categoryId", v)} options={categories.map((c) => ({ value: c.id, label: c.name }))} />

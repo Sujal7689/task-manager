@@ -28,6 +28,9 @@ export default function ProjectDetail() {
   const [name, setName] = useState("");
   const [targetDate, setTargetDate] = useState("");
   const [ownerId, setOwnerId] = useState("");
+  const [savingMilestone, setSavingMilestone] = useState(false);
+  const [savingProject, setSavingProject] = useState(false);
+  const [savingMilestoneEdit, setSavingMilestoneEdit] = useState(false);
 
   const [editingProject, setEditingProject] = useState(false);
   const [projectEdit, setProjectEdit] = useState({
@@ -62,11 +65,17 @@ export default function ProjectDetail() {
 
   async function handleCreateMilestone(e: FormEvent) {
     e.preventDefault();
-    await api.post("/milestones", { name, projectId: id, targetDate: targetDate || undefined, ownerId });
-    setName("");
-    setShowForm(false);
-    refresh();
-    showToast("Milestone created.");
+    if (savingMilestone) return;
+    setSavingMilestone(true);
+    try {
+      await api.post("/milestones", { name, projectId: id, targetDate: targetDate || undefined, ownerId });
+      setName("");
+      setShowForm(false);
+      refresh();
+      showToast("Milestone created.");
+    } finally {
+      setSavingMilestone(false);
+    }
   }
 
   function startEditProject() {
@@ -86,7 +95,9 @@ export default function ProjectDetail() {
 
   async function saveProject(e: FormEvent) {
     e.preventDefault();
+    if (savingProject) return;
     setError(null);
+    setSavingProject(true);
     try {
       await api.patch(`/projects/${id}`, {
         name: projectEdit.name,
@@ -102,6 +113,8 @@ export default function ProjectDetail() {
       showToast("Project saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update project."));
+    } finally {
+      setSavingProject(false);
     }
   }
 
@@ -129,7 +142,9 @@ export default function ProjectDetail() {
 
   async function saveMilestone(e: FormEvent, milestoneId: string) {
     e.preventDefault();
+    if (savingMilestoneEdit) return;
     setError(null);
+    setSavingMilestoneEdit(true);
     try {
       await api.patch(`/milestones/${milestoneId}`, {
         name: milestoneEdit.name,
@@ -142,6 +157,8 @@ export default function ProjectDetail() {
       showToast("Milestone saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update milestone."));
+    } finally {
+      setSavingMilestoneEdit(false);
     }
   }
 
@@ -255,8 +272,12 @@ export default function ProjectDetail() {
             onChange={(e) => setProjectEdit({ ...projectEdit, endDate: e.target.value })}
             className="border border-slate-300 rounded-lg px-3 py-2"
           />
-          <button type="submit" className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800">
-            Save
+          <button
+            type="submit"
+            disabled={savingProject}
+            className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800 disabled:opacity-50"
+          >
+            {savingProject ? "Saving..." : "Save"}
           </button>
         </form>
       )}
@@ -291,8 +312,12 @@ export default function ProjectDetail() {
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
-          <button type="submit" className="bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800">
-            Add
+          <button
+            type="submit"
+            disabled={savingMilestone}
+            className="bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800 disabled:opacity-50"
+          >
+            {savingMilestone ? "Adding..." : "Add"}
           </button>
         </form>
       )}
@@ -339,7 +364,9 @@ export default function ProjectDetail() {
                 ))}
               </select>
               <div className="flex gap-2">
-                <button type="submit" className="text-sm font-medium text-slate-900">Save</button>
+                <button type="submit" disabled={savingMilestoneEdit} className="text-sm font-medium text-slate-900 disabled:opacity-50">
+                  {savingMilestoneEdit ? "Saving..." : "Save"}
+                </button>
                 <button type="button" onClick={() => setEditingMilestoneId(null)} className="text-sm text-slate-400">Cancel</button>
               </div>
             </form>

@@ -17,6 +17,7 @@ export default function ProjectList() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
@@ -62,7 +63,9 @@ export default function ProjectList() {
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
+    setSaving(true);
     try {
       await api.post("/projects", { name, companyId, departmentId, ownerId });
       setName("");
@@ -71,6 +74,8 @@ export default function ProjectList() {
       showToast("Project created.");
     } catch {
       setError("Could not create project. Check all fields are filled.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -117,8 +122,12 @@ export default function ProjectList() {
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
-          <button type="submit" className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800">
-            Create
+          <button
+            type="submit"
+            disabled={saving}
+            className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800 disabled:opacity-50"
+          >
+            {saving ? "Creating..." : "Create"}
           </button>
         </form>
       )}

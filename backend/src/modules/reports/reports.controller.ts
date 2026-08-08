@@ -39,6 +39,7 @@ const timesheetFiltersSchema = z.object({
   employeeId: z.string().optional(),
   taskId: z.string().optional(),
   projectId: z.string().optional(),
+  milestoneId: z.string().optional(),
   departmentId: z.string().optional(),
   companyId: z.string().optional(),
   from: z.string().optional(),

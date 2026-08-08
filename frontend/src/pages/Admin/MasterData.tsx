@@ -24,6 +24,12 @@ export default function MasterData() {
   const [editingCompany, setEditingCompany] = useState<{ id: string; name: string } | null>(null);
   const [editingDept, setEditingDept] = useState<{ id: string; name: string; companyId: string } | null>(null);
   const [editingCategory, setEditingCategory] = useState<{ id: string; name: string; parentId: string } | null>(null);
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [savingCompanyEdit, setSavingCompanyEdit] = useState(false);
+  const [savingDept, setSavingDept] = useState(false);
+  const [savingDeptEdit, setSavingDeptEdit] = useState(false);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [savingCategoryEdit, setSavingCategoryEdit] = useState(false);
 
   function refresh() {
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
@@ -34,15 +40,22 @@ export default function MasterData() {
 
   async function addCompany(e: FormEvent) {
     e.preventDefault();
-    await api.post("/companies", { name: companyName });
-    setCompanyName("");
-    refresh();
-    showToast("Company added.");
+    if (savingCompany) return;
+    setSavingCompany(true);
+    try {
+      await api.post("/companies", { name: companyName });
+      setCompanyName("");
+      refresh();
+      showToast("Company added.");
+    } finally {
+      setSavingCompany(false);
+    }
   }
   async function saveCompany(e: FormEvent) {
     e.preventDefault();
-    if (!editingCompany) return;
+    if (!editingCompany || savingCompanyEdit) return;
     setError(null);
+    setSavingCompanyEdit(true);
     try {
       await api.patch(`/companies/${editingCompany.id}`, { name: editingCompany.name });
       setEditingCompany(null);
@@ -50,6 +63,8 @@ export default function MasterData() {
       showToast("Company saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update company."));
+    } finally {
+      setSavingCompanyEdit(false);
     }
   }
   async function deleteCompany(id: string) {
@@ -65,15 +80,22 @@ export default function MasterData() {
 
   async function addDepartment(e: FormEvent) {
     e.preventDefault();
-    await api.post("/departments", { name: deptName, companyId: deptCompanyId });
-    setDeptName("");
-    refresh();
-    showToast("Department added.");
+    if (savingDept) return;
+    setSavingDept(true);
+    try {
+      await api.post("/departments", { name: deptName, companyId: deptCompanyId });
+      setDeptName("");
+      refresh();
+      showToast("Department added.");
+    } finally {
+      setSavingDept(false);
+    }
   }
   async function saveDepartment(e: FormEvent) {
     e.preventDefault();
-    if (!editingDept) return;
+    if (!editingDept || savingDeptEdit) return;
     setError(null);
+    setSavingDeptEdit(true);
     try {
       await api.patch(`/departments/${editingDept.id}`, { name: editingDept.name, companyId: editingDept.companyId });
       setEditingDept(null);
@@ -81,6 +103,8 @@ export default function MasterData() {
       showToast("Department saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update department."));
+    } finally {
+      setSavingDeptEdit(false);
     }
   }
   async function deleteDepartment(id: string) {
@@ -96,15 +120,22 @@ export default function MasterData() {
 
   async function addCategory(e: FormEvent) {
     e.preventDefault();
-    await api.post("/categories", { name: categoryName, parentId: categoryParentId || undefined });
-    setCategoryName("");
-    refresh();
-    showToast("Category added.");
+    if (savingCategory) return;
+    setSavingCategory(true);
+    try {
+      await api.post("/categories", { name: categoryName, parentId: categoryParentId || undefined });
+      setCategoryName("");
+      refresh();
+      showToast("Category added.");
+    } finally {
+      setSavingCategory(false);
+    }
   }
   async function saveCategory(e: FormEvent) {
     e.preventDefault();
-    if (!editingCategory) return;
+    if (!editingCategory || savingCategoryEdit) return;
     setError(null);
+    setSavingCategoryEdit(true);
     try {
       await api.patch(`/categories/${editingCategory.id}`, {
         name: editingCategory.name,
@@ -115,6 +146,8 @@ export default function MasterData() {
       showToast("Category saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update category."));
+    } finally {
+      setSavingCategoryEdit(false);
     }
   }
   async function deleteCategory(id: string) {
@@ -138,7 +171,9 @@ export default function MasterData() {
           <h3 className="font-medium text-slate-900 mb-3">Companies</h3>
           <form onSubmit={addCompany} className="flex gap-2 mb-3">
             <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="New company" required className="input" />
-            <button type="submit" className="bg-slate-900 text-white rounded-lg px-3 text-sm">Add</button>
+            <button type="submit" disabled={savingCompany} className="bg-slate-900 text-white rounded-lg px-3 text-sm disabled:opacity-50">
+              {savingCompany ? "Adding..." : "Add"}
+            </button>
           </form>
           <ul className="text-sm text-slate-700 space-y-1">
             {companies.map((c) =>
@@ -151,7 +186,9 @@ export default function MasterData() {
                       className="input py-1"
                       autoFocus
                     />
-                    <button type="submit" className="text-xs text-slate-900 font-medium px-2">Save</button>
+                    <button type="submit" disabled={savingCompanyEdit} className="text-xs text-slate-900 font-medium px-2 disabled:opacity-50">
+                      {savingCompanyEdit ? "Saving..." : "Save"}
+                    </button>
                     <button type="button" onClick={() => setEditingCompany(null)} className="text-xs text-slate-400 px-1">✕</button>
                   </form>
                 </li>
@@ -176,7 +213,9 @@ export default function MasterData() {
               <option value="">Company</option>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <button type="submit" className="w-full bg-slate-900 text-white rounded-lg py-1.5 text-sm">Add</button>
+            <button type="submit" disabled={savingDept} className="w-full bg-slate-900 text-white rounded-lg py-1.5 text-sm disabled:opacity-50">
+              {savingDept ? "Adding..." : "Add"}
+            </button>
           </form>
           <ul className="text-sm text-slate-700 space-y-1">
             {departments.map((d) =>
@@ -197,7 +236,9 @@ export default function MasterData() {
                       {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                     <div className="flex gap-2">
-                      <button type="submit" className="text-xs text-slate-900 font-medium">Save</button>
+                      <button type="submit" disabled={savingDeptEdit} className="text-xs text-slate-900 font-medium disabled:opacity-50">
+                        {savingDeptEdit ? "Saving..." : "Save"}
+                      </button>
                       <button type="button" onClick={() => setEditingDept(null)} className="text-xs text-slate-400">Cancel</button>
                     </div>
                   </form>
@@ -223,7 +264,9 @@ export default function MasterData() {
               <option value="">Top-level (no parent)</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <button type="submit" className="w-full bg-slate-900 text-white rounded-lg py-1.5 text-sm">Add</button>
+            <button type="submit" disabled={savingCategory} className="w-full bg-slate-900 text-white rounded-lg py-1.5 text-sm disabled:opacity-50">
+              {savingCategory ? "Adding..." : "Add"}
+            </button>
           </form>
           <ul className="text-sm text-slate-700 space-y-1">
             {categories.map((c) => (
@@ -245,7 +288,9 @@ export default function MasterData() {
                       {categories.filter((opt) => opt.id !== c.id).map((opt) => <option key={opt.id} value={opt.id}>{opt.name}</option>)}
                     </select>
                     <div className="flex gap-2">
-                      <button type="submit" className="text-xs text-slate-900 font-medium">Save</button>
+                      <button type="submit" disabled={savingCategoryEdit} className="text-xs text-slate-900 font-medium disabled:opacity-50">
+                        {savingCategoryEdit ? "Saving..." : "Save"}
+                      </button>
                       <button type="button" onClick={() => setEditingCategory(null)} className="text-xs text-slate-400">Cancel</button>
                     </div>
                   </form>

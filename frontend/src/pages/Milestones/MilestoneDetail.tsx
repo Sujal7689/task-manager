@@ -22,6 +22,7 @@ export default function MilestoneDetail() {
   const [error, setError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [edit, setEdit] = useState({ name: "", targetDate: "", ownerId: "", status: "NOT_STARTED" as MilestoneStatus });
 
   const canEditOrDelete = user?.role === "ADMIN";
@@ -49,7 +50,9 @@ export default function MilestoneDetail() {
 
   async function saveMilestone(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
     setError(null);
+    setSaving(true);
     try {
       await api.patch(`/milestones/${id}`, {
         name: edit.name,
@@ -62,6 +65,8 @@ export default function MilestoneDetail() {
       showToast("Milestone saved.");
     } catch (err) {
       setError(errorMessage(err, "Could not update milestone."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -152,8 +157,12 @@ export default function MilestoneDetail() {
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <button type="submit" className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800">
-            Save
+          <button
+            type="submit"
+            disabled={saving}
+            className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 font-medium hover:bg-slate-800 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
           </button>
         </form>
       )}

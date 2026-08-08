@@ -27,6 +27,8 @@ export default function KpiEscalationConfig() {
   const [departmentId, setDepartmentId] = useState("");
   const [notifyHead, setNotifyHead] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [savingWeights, setSavingWeights] = useState(false);
+  const [savingRule, setSavingRule] = useState(false);
 
   function refresh() {
     api.get("/kpi/weights").then((res) => setWeights(res.data));
@@ -37,25 +39,37 @@ export default function KpiEscalationConfig() {
 
   async function saveWeights(e: FormEvent) {
     e.preventDefault();
-    await api.put("/kpi/weights", {
-      onTime: Number(weights.onTimeWeight),
-      estimateAccuracy: Number(weights.estimateAccuracyWeight),
-      volume: Number(weights.volumeWeight),
-      quality: Number(weights.qualityWeight),
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (savingWeights) return;
+    setSavingWeights(true);
+    try {
+      await api.put("/kpi/weights", {
+        onTime: Number(weights.onTimeWeight),
+        estimateAccuracy: Number(weights.estimateAccuracyWeight),
+        volume: Number(weights.volumeWeight),
+        quality: Number(weights.qualityWeight),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSavingWeights(false);
+    }
   }
 
   async function addRule(e: FormEvent) {
     e.preventDefault();
-    await api.post("/admin/escalation-rules", {
-      departmentId: departmentId || undefined,
-      overdueDay: Number(overdueDay),
-      notifyDepartmentHead: notifyHead,
-    });
-    refresh();
-    showToast("Escalation rule added.");
+    if (savingRule) return;
+    setSavingRule(true);
+    try {
+      await api.post("/admin/escalation-rules", {
+        departmentId: departmentId || undefined,
+        overdueDay: Number(overdueDay),
+        notifyDepartmentHead: notifyHead,
+      });
+      refresh();
+      showToast("Escalation rule added.");
+    } finally {
+      setSavingRule(false);
+    }
   }
 
   async function deleteRule(id: string) {
@@ -77,7 +91,9 @@ export default function KpiEscalationConfig() {
           <WeightField label="Task Volume" value={weights.volumeWeight} onChange={(v) => setWeights({ ...weights, volumeWeight: v })} />
           <WeightField label="Quality/Feedback" value={weights.qualityWeight} onChange={(v) => setWeights({ ...weights, qualityWeight: v })} />
           <p className={`text-xs ${total === 100 ? "text-slate-400" : "text-amber-600"}`}>Total: {total}{total !== 100 && " (should be 100)"}</p>
-          <button type="submit" className="bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium">Save weights</button>
+          <button type="submit" disabled={savingWeights} className="bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium disabled:opacity-50">
+            {savingWeights ? "Saving..." : "Save weights"}
+          </button>
           {saved && <span className="text-sm text-green-600 ml-3">Saved.</span>}
         </form>
       </section>
@@ -91,7 +107,9 @@ export default function KpiEscalationConfig() {
             <option value="">All departments</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          <button type="submit" className="bg-slate-900 text-white rounded-lg text-sm">Add</button>
+          <button type="submit" disabled={savingRule} className="bg-slate-900 text-white rounded-lg text-sm disabled:opacity-50">
+            {savingRule ? "Adding..." : "Add"}
+          </button>
           <label className="col-span-3 flex items-center gap-2 text-xs text-slate-600">
             <input type="checkbox" checked={notifyHead} onChange={(e) => setNotifyHead(e.target.checked)} />
             Notify Department Head

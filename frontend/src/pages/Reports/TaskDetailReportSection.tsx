@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
-import { Category, Company, Department, Priority, Project, TaskStatus, User } from "../../types";
+import { Category, Company, Department, Milestone, Priority, Project, TaskStatus, User } from "../../types";
 import Pagination from "../../components/Pagination";
 import SearchInput from "../../components/SearchInput";
 
@@ -41,6 +41,7 @@ export default function TaskDetailReportSection() {
   const [assigneeId, setAssigneeId] = useState("");
   const [assignedById, setAssignedById] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [milestoneId, setMilestoneId] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -54,6 +55,7 @@ export default function TaskDetailReportSection() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [rows, setRows] = useState<TaskRow[]>([]);
@@ -64,6 +66,7 @@ export default function TaskDetailReportSection() {
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
     api.get<Department[]>("/departments").then((res) => setDepartments(res.data));
     api.get<Project[]>("/projects").then((res) => setProjects(res.data));
+    api.get<Milestone[]>("/milestones").then((res) => setMilestones(res.data));
     api.get<Category[]>("/categories").then((res) => setCategories(res.data));
     api.get<User[]>("/users").then((res) => setUsers(res.data));
   }, []);
@@ -74,6 +77,7 @@ export default function TaskDetailReportSection() {
     assigneeId: assigneeId || undefined,
     assignedById: assignedById || undefined,
     projectId: projectId || undefined,
+    milestoneId: milestoneId || undefined,
     companyId: companyId || undefined,
     departmentId: departmentId || undefined,
     categoryId: categoryId || undefined,
@@ -97,16 +101,22 @@ export default function TaskDetailReportSection() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(refresh, [from, to, assigneeId, assignedById, projectId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays, search, page]);
+  useEffect(refresh, [from, to, assigneeId, assignedById, projectId, milestoneId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays, search, page]);
+
+  function setProject(value: string) {
+    setProjectId(value);
+    // A milestone from the old project wouldn't apply to the newly selected one.
+    setMilestoneId("");
+  }
 
   function clearFilters() {
-    setFrom(""); setTo(""); setAssigneeId(""); setAssignedById(""); setProjectId(""); setCompanyId("");
+    setFrom(""); setTo(""); setAssigneeId(""); setAssignedById(""); setProjectId(""); setMilestoneId(""); setCompanyId("");
     setDepartmentId(""); setCategoryId(""); setPriority(""); setStatus(""); setOverdue(false); setOverdueDays(""); setSearch("");
   }
 
   // Any filter/search change starts back at page 1 (page itself is excluded
   // from this effect's deps, so it doesn't fight with Pagination's onPageChange).
-  useEffect(() => setPage(1), [from, to, assigneeId, assignedById, projectId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays, search]);
+  useEffect(() => setPage(1), [from, to, assigneeId, assignedById, projectId, milestoneId, companyId, departmentId, categoryId, priority, status, overdue, overdueDays, search]);
 
   const activeCount = Object.values(params).filter(Boolean).length;
 
@@ -154,9 +164,16 @@ export default function TaskDetailReportSection() {
         </label>
         <label className="block">
           <span className="text-xs text-slate-500 block mb-1">Project</span>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input">
+          <select value={projectId} onChange={(e) => setProject(e.target.value)} className="input">
             <option value="">All</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs text-slate-500 block mb-1">Milestone</span>
+          <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)} className="input">
+            <option value="">All</option>
+            {milestones.filter((m) => !projectId || m.projectId === projectId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </label>
         <label className="block">

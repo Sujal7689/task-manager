@@ -340,6 +340,7 @@ export interface TimesheetReportFilters {
   employeeId?: string;
   taskId?: string;
   projectId?: string;
+  milestoneId?: string;
   departmentId?: string;
   companyId?: string;
   from?: string;
@@ -374,6 +375,7 @@ async function fetchScopedTimesheetEntries(user: AuthUser, filters: TimesheetRep
       filters.from ? { date: { gte: toDate(filters.from) } } : {},
       filters.to ? { date: { lte: toDate(filters.to) } } : {},
       filters.projectId ? { task: { projectId: filters.projectId } } : {},
+      filters.milestoneId ? { task: { milestoneId: filters.milestoneId } } : {},
       filters.departmentId
         ? { task: { OR: [{ departmentId: filters.departmentId }, { project: { departmentId: filters.departmentId } }] } }
         : {},
