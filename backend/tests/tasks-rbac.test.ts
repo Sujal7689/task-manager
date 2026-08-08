@@ -80,9 +80,12 @@ describe("task RBAC scoping", () => {
     expect(res.body.status).toBe("IN_PROGRESS");
   });
 
-  it("blocks Staff from a full task edit", async () => {
-    const res = await request(app).patch(`/api/tasks/${visibleTaskId}`).set(authed(staffToken)).send({ name: "hacked" });
-    expect(res.status).toBe(403);
+  // All roles (including Staff) can now fully edit tasks they can see —
+  // widened from the original Admin/Manager/Team-Lead-only rule.
+  it("allows Staff a full task edit", async () => {
+    const res = await request(app).patch(`/api/tasks/${visibleTaskId}`).set(authed(staffToken)).send({ name: "edited by staff" });
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe("edited by staff");
   });
 
   it("blocks Staff from updating progress on a task not assigned to them", async () => {
