@@ -5,6 +5,7 @@ import * as service from "./tasks.service";
 import { AppError } from "../../utils/appError";
 import { parseCsv, toCsv } from "../../utils/csv";
 import { parsePagination, toPaginated } from "../../utils/pagination";
+import { runWithUser } from "../../utils/requestContext";
 
 const taskBaseSchema = z.object({
   name: z.string().min(1),
@@ -91,50 +92,50 @@ export async function listHandler(req: Request, res: Response) {
   const sort = { field: sortBy, dir: sortDir };
   const pagination = parsePagination(req.query);
   if (!pagination) {
-    return res.json(await service.listTasks(req.user!, query, undefined, sort));
+    return res.json(await runWithUser(req.user!.id, () => service.listTasks(req.user!, query, undefined, sort)));
   }
-  const { items, total } = (await service.listTasks(req.user!, query, pagination, sort)) as { items: unknown[]; total: number };
+  const { items, total } = (await runWithUser(req.user!.id, () => service.listTasks(req.user!, query, pagination, sort))) as { items: unknown[]; total: number };
   res.json(toPaginated(items, total, pagination.page, pagination.pageSize));
 }
 
 export async function getHandler(req: Request, res: Response) {
-  res.json(await service.getTask(req.params.id, req.user!));
+  res.json(await runWithUser(req.user!.id, () => service.getTask(req.params.id, req.user!)));
 }
 
 export async function createHandler(req: Request, res: Response) {
   const body = taskSchema.parse(req.body);
-  res.status(201).json(await service.createTask(body, req.user!.id));
+  res.status(201).json(await runWithUser(req.user!.id, () => service.createTask(body, req.user!.id)));
 }
 
 export async function updateHandler(req: Request, res: Response) {
   const body = updateSchema.parse(req.body);
-  res.json(await service.updateTask(req.params.id, body));
+  res.json(await runWithUser(req.user!.id, () => service.updateTask(req.params.id, body)));
 }
 
 // Staff may only update status/percentComplete, and only on tasks assigned to them.
 export async function updateProgressHandler(req: Request, res: Response) {
   const body = progressSchema.parse(req.body);
-  const isAssignee = await service.isTaskAssignee(req.params.id, req.user!.id);
+  const isAssignee = await runWithUser(req.user!.id, () => service.isTaskAssignee(req.params.id, req.user!.id));
   if (req.user!.role === Role.STAFF && !isAssignee) {
     throw new AppError(403, "You can only update tasks assigned to you");
   }
-  res.json(await service.updateTaskProgress(req.params.id, body));
+  res.json(await runWithUser(req.user!.id, () => service.updateTaskProgress(req.params.id, body)));
 }
 
 export async function deleteHandler(req: Request, res: Response) {
-  await service.deleteTask(req.params.id);
+  await runWithUser(req.user!.id, () => service.deleteTask(req.params.id));
   res.status(204).send();
 }
 
 export async function cloneHandler(req: Request, res: Response) {
-  res.status(201).json(await service.cloneTask(req.params.id, req.user!.id));
+  res.status(201).json(await runWithUser(req.user!.id, () => service.cloneTask(req.params.id, req.user!.id)));
 }
 
 export async function bulkImportHandler(req: Request, res: Response) {
   if (!req.file) throw new AppError(400, "No CSV file uploaded (field name: 'file')");
   const rows = parseCsv(req.file.buffer.toString("utf-8"));
   if (rows.length === 0) throw new AppError(400, "CSV has no data rows");
-  res.json(await service.bulkCreateTasks(rows, req.user!.id));
+  res.json(await runWithUser(req.user!.id, () => service.bulkCreateTasks(rows, req.user!.id)));
 }
 
 // Downloadable starter CSV matching bulkImportHandler's expected columns exactly —
@@ -163,17 +164,17 @@ export async function bulkImportTemplateHandler(_req: Request, res: Response) {
 
 export async function uploadAttachmentHandler(req: Request, res: Response) {
   if (!req.file) throw new AppError(400, "No file uploaded (field name: 'file')");
-  await service.getTask(req.params.id, req.user!); // enforces the same RBAC visibility as viewing the task
-  const attachment = await service.addTaskAttachment(req.params.id, {
-    fileName: req.file.originalname,
-    filePath: `uploads/tasks/${req.file.filename}`,
-    fileSize: req.file.size,
-    mimeType: req.file.mimetype,
-  });
+  await runWithUser(req.user!.id, () => service.getTask(req.params.id, req.user!)); // enforces the same RBAC visibility as viewing the task
+  const attachment = await runWithUser(req.user!.id, () => service.addTaskAttachment(req.params.id, {
+    fileName: req.file!.originalname,
+    filePath: `uploads/tasks/${req.file!.filename}`,
+    fileSize: req.file!.size,
+    mimeType: req.file!.mimetype,
+  }));
   res.status(201).json(attachment);
 }
 
 export async function deleteAttachmentHandler(req: Request, res: Response) {
-  await service.deleteTaskAttachment(req.params.id, req.params.attachmentId);
+  await runWithUser(req.user!.id, () => service.deleteTaskAttachment(req.params.id, req.params.attachmentId));
   res.status(204).send();
 }
