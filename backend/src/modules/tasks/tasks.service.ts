@@ -304,11 +304,74 @@ async function resolveHierarchy(input: TaskInput) {
     throw new AppError(400, "A task must belong to a Project or Milestone, or be a sub-task of another Task");
   }
 
+  // projectId can still be the client's raw, unvalidated value here — it's
+  // only derived from the milestone/parent lookup above when the client
+  // *didn't* also send its own projectId directly (the `??` falls back, it
+  // doesn't override). A stale or bogus id sent alongside a valid milestoneId
+  // would otherwise reach the DB write unchecked and surface as an opaque
+  // foreign-key crash instead of a clear "not found" message.
+  if (projectId) {
+    const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+    if (!project) throw new AppError(400, "Project not found");
+  }
+
   return { projectId, milestoneId, departmentId, parentTaskNumber };
+}
+
+// Every optional foreign key on a task is validated up front so a stale
+// reference (e.g. a dropdown submitted after someone else deleted that
+// department/category/user) produces a clear 400 instead of an unhandled
+// Prisma constraint crash — this was the root cause behind several
+// "Internal server error" reports on task creation.
+async function validateOptionalReferences(input: {
+  departmentId?: string;
+  categoryId?: string;
+  subCategoryId?: string;
+  companyId?: string;
+  assigneeIds?: string[];
+}) {
+  const checks: Promise<void>[] = [];
+  if (input.departmentId) {
+    checks.push(
+      prisma.department.findUnique({ where: { id: input.departmentId }, select: { id: true } }).then((d) => {
+        if (!d) throw new AppError(400, "Department not found");
+      }),
+    );
+  }
+  if (input.categoryId) {
+    checks.push(
+      prisma.category.findUnique({ where: { id: input.categoryId }, select: { id: true } }).then((c) => {
+        if (!c) throw new AppError(400, "Category not found");
+      }),
+    );
+  }
+  if (input.subCategoryId) {
+    checks.push(
+      prisma.category.findUnique({ where: { id: input.subCategoryId }, select: { id: true } }).then((c) => {
+        if (!c) throw new AppError(400, "Sub-category not found");
+      }),
+    );
+  }
+  if (input.companyId) {
+    checks.push(
+      prisma.company.findUnique({ where: { id: input.companyId }, select: { id: true } }).then((c) => {
+        if (!c) throw new AppError(400, "Company not found");
+      }),
+    );
+  }
+  if (input.assigneeIds?.length) {
+    checks.push(
+      prisma.user.findMany({ where: { id: { in: input.assigneeIds } }, select: { id: true } }).then((users) => {
+        if (users.length !== new Set(input.assigneeIds).size) throw new AppError(400, "One or more assignees not found");
+      }),
+    );
+  }
+  await Promise.all(checks);
 }
 
 export async function createTask(input: TaskInput, assignedById: string) {
   const { projectId, milestoneId, departmentId, parentTaskNumber } = await resolveHierarchy(input);
+  await validateOptionalReferences(input);
   const taskNumber =
     input.parentTaskId && parentTaskNumber
       ? await generateSubTaskNumber(input.parentTaskId, parentTaskNumber)
@@ -348,14 +411,21 @@ export async function createTask(input: TaskInput, assignedById: string) {
   });
 
   // New task assigned (Section 6.9): notify every assignee, in-app + email.
+  // The task itself is already committed above — a notification failure
+  // (e.g. a transient DB hiccup) must not turn an already-successful
+  // creation into a client-visible 500, so each notify is best-effort.
   for (const userId of input.assigneeIds ?? []) {
-    await notify({
-      recipientId: userId,
-      type: "TASK_ASSIGNED",
-      message: `You were assigned to ${task.taskNumber} — ${task.name}`,
-      taskId: task.id,
-      sendEmailToo: true,
-    });
+    try {
+      await notify({
+        recipientId: userId,
+        type: "TASK_ASSIGNED",
+        message: `You were assigned to ${task.taskNumber} — ${task.name}`,
+        taskId: task.id,
+        sendEmailToo: true,
+      });
+    } catch (err) {
+      console.error(`[createTask] notify failed for assignee ${userId}:`, err instanceof Error ? err.message : err);
+    }
   }
 
   return task;
@@ -396,6 +466,15 @@ export async function updateTask(id: string, input: Partial<TaskInput>) {
     if (!milestone) throw new AppError(400, "Milestone not found");
     projectId = input.projectId ?? milestone.projectId;
   }
+  // Same reasoning as createTask: a client-supplied projectId isn't
+  // guaranteed valid just because a milestoneId was also checked (the `??`
+  // only falls back, it doesn't override), and every other optional
+  // reference below is entirely unvalidated up to this point.
+  if (input.projectId) {
+    const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
+    if (!project) throw new AppError(400, "Project not found");
+  }
+  await validateOptionalReferences(input);
 
   const previousAssigneeIds = new Set(existing.assignees.map((a) => a.userId));
 
@@ -431,26 +510,37 @@ export async function updateTask(id: string, input: Partial<TaskInput>) {
     include: taskInclude,
   });
 
+  // Same best-effort reasoning as createTask: the update already committed
+  // above, so a notification failure must not surface as a 500 on an edit
+  // that actually succeeded.
   if (input.assigneeIds) {
     const newlyAssigned = input.assigneeIds.filter((userId) => !previousAssigneeIds.has(userId));
     for (const userId of newlyAssigned) {
-      await notify({
-        recipientId: userId,
-        type: "TASK_ASSIGNED",
-        message: `You were assigned to ${updated.taskNumber} — ${updated.name}`,
-        taskId: updated.id,
-        sendEmailToo: true,
-      });
+      try {
+        await notify({
+          recipientId: userId,
+          type: "TASK_ASSIGNED",
+          message: `You were assigned to ${updated.taskNumber} — ${updated.name}`,
+          taskId: updated.id,
+          sendEmailToo: true,
+        });
+      } catch (err) {
+        console.error(`[updateTask] notify failed for assignee ${userId}:`, err instanceof Error ? err.message : err);
+      }
     }
   }
 
   if (input.status && input.status !== existing.status) {
-    await notify({
-      recipientId: existing.assignedById,
-      type: "TASK_STATUS_CHANGED",
-      message: `${updated.taskNumber} — ${updated.name} status changed to ${input.status.replace("_", " ")}`,
-      taskId: updated.id,
-    });
+    try {
+      await notify({
+        recipientId: existing.assignedById,
+        type: "TASK_STATUS_CHANGED",
+        message: `${updated.taskNumber} — ${updated.name} status changed to ${input.status.replace("_", " ")}`,
+        taskId: updated.id,
+      });
+    } catch (err) {
+      console.error(`[updateTask] status-change notify failed:`, err instanceof Error ? err.message : err);
+    }
   }
 
   return updated;

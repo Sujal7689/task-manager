@@ -547,3 +547,23 @@ model AuditLog {
   @@index([entityType, entityId])
   @@map("audit_log")
 }
+
+// Server-side error capture, viewable from Admin > Error Log — so a bare
+// "Internal server error" response has a real stack trace behind it without
+// needing shell/log access to wherever the app is deployed. Deliberately has
+// no relation to User (unlike AuditLog above): it must still record an error
+// caused by, say, a broken foreign key, so userId is a plain unlinked string.
+model ErrorLog {
+  id         String   @id @default(cuid())
+  method     String
+  path       String
+  statusCode Int      @map("status_code")
+  message    String
+  stack      String?
+  userId     String?  @map("user_id")
+  userRole   String?  @map("user_role")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("error_log")
+}

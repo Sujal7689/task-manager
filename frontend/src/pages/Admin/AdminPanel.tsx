@@ -5,9 +5,10 @@ import MasterData from "./MasterData";
 import KpiEscalationConfig from "./KpiEscalationConfig";
 import ZohoIntegration from "./ZohoIntegration";
 import AuditLogViewer from "./AuditLogViewer";
+import ErrorLogViewer from "./ErrorLogViewer";
 import Configuration from "./Configuration";
 
-const tabs = ["Users", "Master Data", "KPI & Escalation", "Zoho CRM", "Configuration", "Audit Log"] as const;
+const tabs = ["Users", "Master Data", "KPI & Escalation", "Zoho CRM", "Configuration", "Audit Log", "Error Log"] as const;
 type Tab = (typeof tabs)[number];
 
 export default function AdminPanel() {
@@ -39,6 +40,7 @@ export default function AdminPanel() {
       {tab === "Zoho CRM" && <ZohoIntegration />}
       {tab === "Configuration" && <Configuration />}
       {tab === "Audit Log" && <AuditLogViewer />}
+      {tab === "Error Log" && <ErrorLogViewer />}
     </div>
   );
 }
