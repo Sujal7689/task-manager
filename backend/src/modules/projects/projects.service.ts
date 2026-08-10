@@ -27,6 +27,22 @@ export async function getProject(id: string) {
       department: true,
       owner: { select: { id: true, name: true } },
       milestones: true,
+      // Milestone is optional on tasks — top-level tasks that belong to this
+      // project but weren't put under any milestone would otherwise be
+      // invisible from the project page (which only ever rendered tasks
+      // nested under a milestone).
+      tasks: {
+        where: { milestoneId: null, parentTaskId: null },
+        select: {
+          id: true,
+          taskNumber: true,
+          name: true,
+          status: true,
+          percentComplete: true,
+          assignees: { include: { user: { select: { id: true, name: true } } } },
+        },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
   if (!project) throw new AppError(404, "Project not found");

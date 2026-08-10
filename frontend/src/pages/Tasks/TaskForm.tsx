@@ -180,12 +180,11 @@ export default function TaskForm() {
                 ))}
               </select>
             </Field>
-            <Field label={parentTaskId ? "Milestone" : projectId ? "Milestone" : "Milestone (optional)"}>
+            <Field label="Milestone (optional)">
               <select
                 value={milestoneId}
                 onChange={(e) => setMilestoneId(e.target.value)}
                 disabled={Boolean(parentTaskId)}
-                required={Boolean(projectId) && !parentTaskId}
                 className="input disabled:bg-slate-50 disabled:text-slate-500"
               >
                 <option value="">— none —</option>

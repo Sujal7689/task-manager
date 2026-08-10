@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { Company, Department, Milestone, MilestoneStatus, Project, ProjectStatus, User } from "../../types";
+import { Company, Department, Milestone, MilestoneStatus, Project, ProjectStatus, Task, User } from "../../types";
 
 function errorMessage(err: unknown, fallback: string): string {
   const axiosErr = err as { response?: { data?: { error?: string } } };
@@ -18,7 +18,7 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [project, setProject] = useState<(Project & { milestones: Milestone[] }) | null>(null);
+  const [project, setProject] = useState<(Project & { milestones: Milestone[]; tasks: Task[] }) | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -46,10 +46,10 @@ export default function ProjectDetail() {
   const [editingMilestoneId, setEditingMilestoneId] = useState<string | null>(null);
   const [milestoneEdit, setMilestoneEdit] = useState({ name: "", targetDate: "", ownerId: "", status: "NOT_STARTED" as MilestoneStatus });
 
-  // Matches the backend: MANAGER/TEAM_LEAD may create milestones, but edit/delete
-  // on projects and milestones is Admin-only — Manager/Team Lead's edit/delete
-  // access is scoped to the Tasks module only.
-  const canCreateMilestone = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
+  // Matches the backend: all roles may create milestones, but edit/delete
+  // on projects and milestones is Admin-only — Manager/Team Lead/Staff's
+  // edit/delete access is scoped to the Tasks module only.
+  const canCreateMilestone = Boolean(user);
   const canEditOrDelete = user?.role === "ADMIN";
 
   function refresh() {
@@ -390,6 +390,27 @@ export default function ProjectDetail() {
         )}
         {project.milestones.length === 0 && <p className="text-slate-400 text-sm">No milestones yet.</p>}
       </div>
+
+      {project.tasks.length > 0 && (
+        <div className="mt-8">
+          <h2 className="font-medium text-slate-900 mb-3">Tasks without a milestone</h2>
+          <ul className="divide-y divide-slate-100 bg-white border border-slate-200 rounded-xl">
+            {project.tasks.map((t) => (
+              <li key={t.id}>
+                <Link to={`/tasks/${t.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+                  <span className="text-sm text-slate-800">
+                    {t.taskNumber} — {t.name}
+                    <span className="text-xs text-slate-400 ml-2">
+                      {t.assignees.length > 0 ? t.assignees.map((a) => a.user.name).join(", ") : "Unassigned"}
+                    </span>
+                  </span>
+                  <span className="text-xs text-slate-500">{t.status} · {t.percentComplete}%</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

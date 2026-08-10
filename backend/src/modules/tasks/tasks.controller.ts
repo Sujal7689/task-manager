@@ -32,15 +32,6 @@ const taskBaseSchema = z.object({
   closureRating: z.number().int().min(1).max(5).optional(),
 });
 
-// A sub-task (parentTaskId set) inherits its Project/Milestone from the
-// parent, so this only applies to top-level tasks: picking a Project without
-// a Milestone is how tasks were silently going invisible on the Project/
-// Milestone detail pages (they only ever render tasks nested under a Milestone).
-function requiresMilestoneWithProject(data: { projectId?: string; milestoneId?: string; parentTaskId?: string }) {
-  return !data.projectId || Boolean(data.parentTaskId) || Boolean(data.milestoneId);
-}
-const milestoneRequiredIssue = { message: "Milestone is required when a Project is selected", path: ["milestoneId"] };
-
 // Every task is tagged with the department it belongs to; a sub-task
 // (parentTaskId set) inherits its parent's department instead of asking again.
 // Only applies to creation — a top-level task must be given one up front.
@@ -56,13 +47,8 @@ function requiresDepartmentOnUpdate(data: { departmentId?: string | null; parent
 }
 const departmentRequiredIssue = { message: "Department is required", path: ["departmentId"] };
 
-const taskSchema = taskBaseSchema
-  .refine(requiresMilestoneWithProject, milestoneRequiredIssue)
-  .refine(requiresDepartmentOnCreate, departmentRequiredIssue);
-const updateSchema = taskBaseSchema
-  .partial()
-  .refine(requiresMilestoneWithProject, milestoneRequiredIssue)
-  .refine(requiresDepartmentOnUpdate, departmentRequiredIssue);
+const taskSchema = taskBaseSchema.refine(requiresDepartmentOnCreate, departmentRequiredIssue);
+const updateSchema = taskBaseSchema.partial().refine(requiresDepartmentOnUpdate, departmentRequiredIssue);
 const progressSchema = z.object({
   status: z.nativeEnum(TaskStatus).optional(),
   percentComplete: z.number().min(0).max(100).optional(),

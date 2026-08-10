@@ -8,7 +8,7 @@ import * as controller from "./milestones.controller";
 const router = Router();
 router.use(requireAuth);
 
-const canCreate = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD);
+const canCreate = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD, Role.STAFF);
 const canEditOrDelete = requireRole(Role.ADMIN);
 
 router.get("/", asyncHandler(controller.listHandler));

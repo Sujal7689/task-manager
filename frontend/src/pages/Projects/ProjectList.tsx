@@ -24,7 +24,7 @@ export default function ProjectList() {
   const [ownerId, setOwnerId] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const canManage = user?.role === "ADMIN" || user?.role === "MANAGER";
+  const canCreate = Boolean(user);
   const search = searchParams.get("search") ?? "";
   const page = Number(searchParams.get("page")) || 1;
 
@@ -84,7 +84,7 @@ export default function ProjectList() {
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <h1 className="text-2xl font-semibold text-slate-900">Projects</h1>
         <SearchInput value={search} onChange={setSearch} placeholder="Search projects..." className="input max-w-xs" />
-        {canManage && (
+        {canCreate && (
           <button
             onClick={() => setShowForm((v) => !v)}
             className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800"
