@@ -73,9 +73,29 @@ export async function getTaskScopeWhere(user: AuthUser): Promise<Prisma.TaskWher
 
 // Derived from the highest existing number, not a row count — a count-based
 // scheme collides with an already-used taskNumber (hitting the DB's unique
-// constraint) the moment any task is ever deleted, since the count then
-// undershoots the true next number. taskNumber is zero-padded to a fixed
-// width, so lexicographic and numeric ordering agree.
+// constraint). A read-then-insert scheme — check the current max, then
+// create with max+1 — has an inherent race: two concurrent requests can both
+// read the same max before either commits and collide on the taskNumber
+// unique constraint (exactly what happened when two users created a task at
+// the same moment). `TaskNumberCounter` closes that race atomically: this
+// single INSERT ... ON CONFLICT DO UPDATE ... RETURNING statement is one
+// indivisible operation at the database level, so no two callers can ever
+// be handed the same value, no matter how many race for it simultaneously.
+//
+// `seedIfMissing` only matters the very first time a given scope's counter
+// row is created — it's ignored by every call after that (ON CONFLICT just
+// increments), so it exists purely to continue numbering from whatever
+// already exists in the `tasks` table rather than restarting at 1.
+async function nextSequenceValue(scope: string, seedIfMissing: number): Promise<number> {
+  const rows = await prisma.$queryRaw<{ value: number }[]>`
+    INSERT INTO task_number_counter (scope, value)
+    VALUES (${scope}, ${seedIfMissing})
+    ON CONFLICT (scope) DO UPDATE SET value = task_number_counter.value + 1
+    RETURNING value
+  `;
+  return rows[0].value;
+}
+
 // Scoped to top-level tasks only (parentTaskId: null) — sub-tasks live in
 // their own per-parent sequence (see generateSubTaskNumber) and must not
 // feed into or consume this counter.
@@ -87,15 +107,14 @@ async function generateTaskNumber(): Promise<string> {
     select: { taskNumber: true },
   });
   const lastSeq = last ? parseInt(last.taskNumber.slice(prefix.length), 10) || 0 : 0;
-  return `${prefix}${String(lastSeq + 1).padStart(4, "0")}`;
+  const seq = await nextSequenceValue("top-level", lastSeq + 1);
+  return `${prefix}${String(seq).padStart(4, "0")}`;
 }
 
 // Sub-tasks are numbered per-parent (e.g. T-0012-1, T-0012-2, ...) instead of
 // pulling from the shared top-level counter, so a sub-task's number always
 // reads as "belongs to T-0012" and creating/deleting sub-tasks under one
-// parent never perturbs top-level numbering. Siblings are fetched and
-// compared numerically (not via DB string ordering) since "-10" would
-// otherwise sort before "-2" lexicographically once a parent passes 9 sub-tasks.
+// parent never perturbs top-level numbering.
 async function generateSubTaskNumber(parentTaskId: string, parentTaskNumber: string): Promise<string> {
   const prefix = `${parentTaskNumber}-`;
   const siblings = await prisma.task.findMany({ where: { parentTaskId }, select: { taskNumber: true } });
@@ -104,7 +123,8 @@ async function generateSubTaskNumber(parentTaskId: string, parentTaskNumber: str
     const n = parseInt(s.taskNumber.slice(prefix.length), 10);
     return Number.isFinite(n) && n > max ? n : max;
   }, 0);
-  return `${prefix}${maxSeq + 1}`;
+  const seq = await nextSequenceValue(`sub:${parentTaskId}`, maxSeq + 1);
+  return `${prefix}${seq}`;
 }
 
 // Shared filter set for both the interactive Task List and the Task Detail
@@ -369,46 +389,76 @@ async function validateOptionalReferences(input: {
   await Promise.all(checks);
 }
 
+// Two requests racing to create a task at the same moment can both read the
+// same "current highest number" before either has committed its INSERT —
+// generateTaskNumber/generateSubTaskNumber have no way to prevent that on
+// their own, it's inherent to "read max, then insert" without a DB-level
+// lock. Rather than serialize every task creation behind a lock (real cost
+// for the common case), the loser of the race just retries with a freshly
+// re-read number: cheap, and correct because the collision itself proves
+// another task now holds that number, so a fresh read yields the next one.
+const MAX_TASK_NUMBER_ATTEMPTS = 5;
+
+function isTaskNumberCollision(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === "P2002" &&
+    Array.isArray(err.meta?.target) &&
+    (err.meta.target as string[]).includes("task_number")
+  );
+}
+
 export async function createTask(input: TaskInput, assignedById: string) {
   const { projectId, milestoneId, departmentId, parentTaskNumber } = await resolveHierarchy(input);
   await validateOptionalReferences(input);
-  const taskNumber =
-    input.parentTaskId && parentTaskNumber
-      ? await generateSubTaskNumber(input.parentTaskId, parentTaskNumber)
-      : await generateTaskNumber();
 
-  const task = await prisma.task.create({
-    data: {
-      taskNumber,
-      name: input.name,
-      description: input.description,
-      projectId,
-      milestoneId,
-      parentTaskId: input.parentTaskId,
-      categoryId: input.categoryId,
-      subCategoryId: input.subCategoryId,
-      priority: input.priority,
-      tags: input.tags ?? [],
-      startDate: input.startDate ? new Date(input.startDate) : undefined,
-      dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
-      estimatedHours: input.estimatedHours,
-      isRecurring: input.isRecurring ?? false,
-      recurringFrequency: input.recurringFrequency,
-      companyId: input.companyId,
-      departmentId,
-      assignedById,
-      partyName: input.partyName,
-      refId: input.refId,
-      status: input.status,
-      percentComplete: input.percentComplete,
-      closureRating: input.closureRating,
-      closedAt: closedAtPatch("NOT_STARTED", input.status),
-      assignees: input.assigneeIds?.length
-        ? { create: input.assigneeIds.map((userId) => ({ userId })) }
-        : undefined,
-    },
-    include: taskInclude,
-  });
+  let task: Prisma.PromiseReturnType<typeof prisma.task.create> | undefined;
+  for (let attempt = 1; attempt <= MAX_TASK_NUMBER_ATTEMPTS; attempt++) {
+    const taskNumber =
+      input.parentTaskId && parentTaskNumber
+        ? await generateSubTaskNumber(input.parentTaskId, parentTaskNumber)
+        : await generateTaskNumber();
+
+    try {
+      task = await prisma.task.create({
+        data: {
+          taskNumber,
+          name: input.name,
+          description: input.description,
+          projectId,
+          milestoneId,
+          parentTaskId: input.parentTaskId,
+          categoryId: input.categoryId,
+          subCategoryId: input.subCategoryId,
+          priority: input.priority,
+          tags: input.tags ?? [],
+          startDate: input.startDate ? new Date(input.startDate) : undefined,
+          dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
+          estimatedHours: input.estimatedHours,
+          isRecurring: input.isRecurring ?? false,
+          recurringFrequency: input.recurringFrequency,
+          companyId: input.companyId,
+          departmentId,
+          assignedById,
+          partyName: input.partyName,
+          refId: input.refId,
+          status: input.status,
+          percentComplete: input.percentComplete,
+          closureRating: input.closureRating,
+          closedAt: closedAtPatch("NOT_STARTED", input.status),
+          assignees: input.assigneeIds?.length
+            ? { create: input.assigneeIds.map((userId) => ({ userId })) }
+            : undefined,
+        },
+        include: taskInclude,
+      });
+      break;
+    } catch (err) {
+      if (isTaskNumberCollision(err) && attempt < MAX_TASK_NUMBER_ATTEMPTS) continue;
+      throw err;
+    }
+  }
+  if (!task) throw new AppError(500, "Could not generate a unique task number — please try again");
 
   // New task assigned (Section 6.9): notify every assignee, in-app + email.
   // The task itself is already committed above — a notification failure

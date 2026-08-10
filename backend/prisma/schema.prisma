@@ -567,3 +567,20 @@ model ErrorLog {
   @@index([createdAt])
   @@map("error_log")
 }
+
+// Backs atomic task-number generation. `scope` is "top-level" for the shared
+// T-XXXX counter, or a parent task's id for that parent's T-XXXX-N sub-task
+// counter. Read-then-insert (checking the current max, then creating with
+// the next number) has an inherent race: two requests can both read the same
+// max before either commits, compute the same "next" number, and collide on
+// the taskNumber unique constraint — exactly what happened when two users
+// created a task at the same moment. An atomic `INSERT ... ON CONFLICT DO
+// UPDATE ... RETURNING value` on this table (see generateTaskNumber /
+// generateSubTaskNumber) closes that race at the database level instead of
+// just retrying around it.
+model TaskNumberCounter {
+  scope String @id
+  value Int    @default(0)
+
+  @@map("task_number_counter")
+}
