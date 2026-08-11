@@ -181,20 +181,28 @@ export async function buildTaskFilterWhere(filters: TaskFilterInput): Promise<Pr
     clauses.push({ assignees: { some: { userId: { in: [...directReportIds, filters.managerId] } } } });
   }
 
+  // Anchored to the start of today, not the exact current moment — dueDate is
+  // stored at midnight of the due date, so comparing against `new Date()`
+  // (the current wall-clock time) made a task overdue the instant any time
+  // had passed on its own due date, and excluded it from "due today" once
+  // past midnight. A task is only overdue once its due date is fully in the
+  // past, i.e. starting the day *after* it was due.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
   if (filters.overdueDays != null) {
-    const cutoff = new Date();
+    const cutoff = new Date(startOfToday);
     cutoff.setDate(cutoff.getDate() - filters.overdueDays);
     clauses.push({ dueDate: { lt: cutoff }, status: { notIn: ["COMPLETED", "CANCELLED"] } });
   } else if (filters.overdue) {
-    clauses.push({ dueDate: { lt: new Date() }, status: { notIn: ["COMPLETED", "CANCELLED"] } });
+    clauses.push({ dueDate: { lt: startOfToday }, status: { notIn: ["COMPLETED", "CANCELLED"] } });
   }
 
   if (filters.dueWithinDays != null) {
-    const now = new Date();
-    const end = new Date(now);
+    const end = new Date(startOfToday);
     end.setDate(end.getDate() + filters.dueWithinDays);
     end.setHours(23, 59, 59, 999);
-    clauses.push({ dueDate: { gte: now, lte: end }, status: { notIn: ["COMPLETED", "CANCELLED"] } });
+    clauses.push({ dueDate: { gte: startOfToday, lte: end }, status: { notIn: ["COMPLETED", "CANCELLED"] } });
   }
 
   return clauses;

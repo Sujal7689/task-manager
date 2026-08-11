@@ -31,6 +31,7 @@ const FILTER_KEYS = [
   "priority",
   "overdue",
   "overdueDays",
+  "dueWithinDays",
   "managerId",
   "search",
 ] as const;
@@ -173,7 +174,12 @@ export default function TaskList() {
   }
 
   const activeFilterCount = Object.keys(filters).length;
-  const isOverdue = (t: Task) => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== "COMPLETED" && t.status !== "CANCELLED";
+  // A task due "today" isn't overdue until the day after — dueDate is stored
+  // at midnight of the due date, so comparing against the exact current time
+  // would flag it red as soon as any time had passed on its own due date.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const isOverdue = (t: Task) => t.dueDate && new Date(t.dueDate) < startOfToday && t.status !== "COMPLETED" && t.status !== "CANCELLED";
 
   return (
     <div>
@@ -248,6 +254,18 @@ export default function TaskList() {
           </button>
         ))}
         <span className="w-px bg-slate-200 mx-1" />
+        <button
+          onClick={() => setFilter("dueWithinDays", filters.dueWithinDays === "0" ? "" : "0")}
+          className={`text-sm px-3 py-1.5 rounded-full whitespace-nowrap ${filters.dueWithinDays === "0" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
+        >
+          Due Today
+        </button>
+        <button
+          onClick={() => setFilter("dueWithinDays", filters.dueWithinDays === "7" ? "" : "7")}
+          className={`text-sm px-3 py-1.5 rounded-full whitespace-nowrap ${filters.dueWithinDays === "7" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
+        >
+          Upcoming
+        </button>
         <button
           onClick={() => setFilter("overdue", filters.overdue === "true" ? "" : "true")}
           className={`text-sm px-3 py-1.5 rounded-full whitespace-nowrap ${filters.overdue === "true" ? "bg-red-600 text-white" : "bg-white border border-slate-200 text-red-600"}`}

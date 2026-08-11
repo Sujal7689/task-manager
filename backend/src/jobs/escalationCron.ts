@@ -9,9 +9,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 async function checkDueSoon() {
   const now = new Date();
   const in24h = new Date(now.getTime() + DAY_MS);
+  // Lower bound is the start of today, not the exact current moment — dueDate
+  // is stored at midnight, so a task due "today" would otherwise fall out of
+  // this window (and never get a due-soon reminder) the instant any time had
+  // passed past midnight.
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
   const tasks = await prisma.task.findMany({
     where: {
-      dueDate: { gte: now, lte: in24h },
+      dueDate: { gte: startOfToday, lte: in24h },
       status: { notIn: ["COMPLETED", "CANCELLED"] },
     },
     include: { assignees: true },
@@ -38,14 +44,16 @@ async function findDepartmentHead(departmentId: string | null) {
 
 async function checkOverdue() {
   const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
   const overdueTasks = await prisma.task.findMany({
-    where: { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } },
+    where: { dueDate: { lt: startOfToday }, status: { notIn: ["COMPLETED", "CANCELLED"] } },
     include: { assignees: true, project: { select: { departmentId: true } } },
   });
 
   for (const task of overdueTasks) {
     if (!task.dueDate) continue;
-    const daysOverdue = Math.floor((now.getTime() - task.dueDate.getTime()) / DAY_MS);
+    const daysOverdue = Math.floor((startOfToday.getTime() - task.dueDate.getTime()) / DAY_MS);
 
     // Section 6.9 escalation ladder: Day1 -> Assigned To; Day3 -> +Assigned By; Day7 -> +Department Head.
     if (daysOverdue >= 1) {

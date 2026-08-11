@@ -14,18 +14,26 @@ interface AuthUser {
 
 export async function getStaffSummary(user: AuthUser) {
   const scope = await getTaskScopeWhere(user);
+  // Anchored to the start of today, not the exact current moment — dueDate is
+  // stored at midnight of the due date, so comparing against the current
+  // wall-clock time excluded a task due "today" once any time had passed,
+  // and marked it overdue the instant its due date began rather than the
+  // day after.
   const now = new Date();
-  const endOfToday = new Date(now);
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(startOfToday);
   endOfToday.setHours(23, 59, 59, 999);
-  const endOfWeek = new Date(now);
+  const endOfWeek = new Date(startOfToday);
   endOfWeek.setDate(endOfWeek.getDate() + 7);
+  endOfWeek.setHours(23, 59, 59, 999);
 
   const [totalTasks, dueToday, dueThisWeek, overdue, criticalCount, recent] = await Promise.all([
     prisma.task.count({ where: { AND: [scope, topLevelTaskFilter] } }),
-    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { lte: endOfToday, gte: now } }] } }),
-    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { lte: endOfWeek, gte: now } }] } }),
+    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { lte: endOfToday, gte: startOfToday } }] } }),
+    prisma.task.count({ where: { AND: [scope, topLevelTaskFilter, { dueDate: { lte: endOfWeek, gte: startOfToday } }] } }),
     prisma.task.count({
-      where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+      where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: startOfToday }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
     }),
     prisma.task.count({
       where: { AND: [scope, topLevelTaskFilter, { priority: "CRITICAL" }, { status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
@@ -198,16 +206,17 @@ export async function getMilestoneTracking(user: AuthUser) {
 // Delay analysis: overdue tasks (aging buckets), delayed milestones, delayed projects — one call.
 export async function getDelayAnalysis(user: AuthUser) {
   const scope = await getTaskScopeWhere(user);
-  const now = new Date();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
 
   const overdueTasks = await prisma.task.findMany({
-    where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+    where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: startOfToday }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
     select: { id: true, taskNumber: true, name: true, dueDate: true },
   });
 
   const buckets = { "1-3": 0, "4-7": 0, "7+": 0 };
   for (const t of overdueTasks) {
-    const days = Math.floor((now.getTime() - t.dueDate!.getTime()) / (24 * 60 * 60 * 1000));
+    const days = Math.floor((startOfToday.getTime() - t.dueDate!.getTime()) / (24 * 60 * 60 * 1000));
     if (days <= 3) buckets["1-3"]++;
     else if (days <= 7) buckets["4-7"]++;
     else buckets["7+"]++;

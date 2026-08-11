@@ -290,15 +290,16 @@ export async function staffTimesheetReport(userId: string, from: string, to: str
 // 5. Overdue Report — aging buckets 1-3 / 4-7 / 7+ days.
 export async function overdueReport(user: AuthUser) {
   const scope = await getTaskScopeWhere(user);
-  const now = new Date();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
   const tasks = await prisma.task.findMany({
-    where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
+    where: { AND: [scope, topLevelTaskFilter, { dueDate: { lt: startOfToday }, status: { notIn: ["COMPLETED", "CANCELLED"] } }] },
     select: { id: true, taskNumber: true, name: true, dueDate: true, departmentId: true },
   });
 
   const buckets = { "1-3": [] as typeof tasks, "4-7": [] as typeof tasks, "7+": [] as typeof tasks };
   for (const t of tasks) {
-    const days = Math.floor((now.getTime() - t.dueDate!.getTime()) / (24 * 60 * 60 * 1000));
+    const days = Math.floor((startOfToday.getTime() - t.dueDate!.getTime()) / (24 * 60 * 60 * 1000));
     if (days <= 3) buckets["1-3"].push(t);
     else if (days <= 7) buckets["4-7"].push(t);
     else buckets["7+"].push(t);
@@ -309,7 +310,8 @@ export async function overdueReport(user: AuthUser) {
 // 6. Department/Company Rollup — cross-entity comparison.
 export async function departmentRollup() {
   const departments = await prisma.department.findMany({ include: { company: true } });
-  const now = new Date();
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
   return Promise.all(
     departments.map(async (d) => {
       // A task's department is often only set via its Project (Task.departmentId is optional
@@ -318,7 +320,7 @@ export async function departmentRollup() {
       const [total, completed, overdue] = await Promise.all([
         prisma.task.count({ where: scopeWhere }),
         prisma.task.count({ where: { ...scopeWhere, status: "COMPLETED" } }),
-        prisma.task.count({ where: { ...scopeWhere, dueDate: { lt: now }, status: { notIn: ["COMPLETED", "CANCELLED"] } } }),
+        prisma.task.count({ where: { ...scopeWhere, dueDate: { lt: startOfToday }, status: { notIn: ["COMPLETED", "CANCELLED"] } } }),
       ]);
       return { departmentId: d.id, department: d.name, company: d.company.name, total, completed, overdue };
     }),
