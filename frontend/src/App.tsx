@@ -11,6 +11,7 @@ import MilestoneDetail from "./pages/Milestones/MilestoneDetail";
 import TaskList from "./pages/Tasks/TaskList";
 import TaskDetail from "./pages/Tasks/TaskDetail";
 import TaskForm from "./pages/Tasks/TaskForm";
+import ActivityLog from "./pages/Activities/ActivityLog";
 import MyTimesheet from "./pages/Timesheets/MyTimesheet";
 import TeamTimesheet from "./pages/Timesheets/TeamTimesheet";
 import NotificationsCenter from "./pages/Notifications/NotificationsCenter";
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/tasks/new" element={<TaskForm />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/tasks/:id/edit" element={<TaskForm />} />
+          <Route path="/activities" element={<ActivityLog />} />
           <Route path="/timesheet" element={<MyTimesheet />} />
           <Route path="/timesheet/team" element={<TeamTimesheet />} />
           <Route path="/notifications" element={<NotificationsCenter />} />

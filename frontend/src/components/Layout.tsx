@@ -8,6 +8,7 @@ const baseNavItems = [
   { to: "/", label: "Dashboard" },
   { to: "/projects", label: "Projects" },
   { to: "/tasks", label: "Tasks" },
+  { to: "/activities", label: "Activities" },
   { to: "/timesheet", label: "Timesheet" },
   { to: "/leaderboard", label: "Leaderboard" },
 ];

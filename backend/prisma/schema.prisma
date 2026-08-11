@@ -41,6 +41,7 @@ model Department {
   users     User[]
   projects  Project[]
   tasks     Task[]
+  dailyActivities DailyActivity[]
   escalationRules EscalationRule[]
 
   @@unique([companyId, name])
@@ -101,6 +102,7 @@ model User {
   tasksAssignedBy       Task[]     @relation("TaskAssignedBy")
   taskAssignments       TaskAssignee[]
   activityLogs          ActivityLog[]  @relation("ActivityLoggedBy")
+  dailyActivities       DailyActivity[] @relation("DailyActivityLoggedBy")
   timesheetEntries      TimesheetEntry[]
   notifications         NotificationLog[]
   auditLogs             AuditLog[]     @relation("AuditChangedBy")
@@ -151,6 +153,7 @@ model Project {
 
   milestones   Milestone[]
   tasks        Task[]
+  dailyActivities DailyActivity[]
 
   @@map("projects")
 }
@@ -378,12 +381,64 @@ model ActivityAttachment {
   @@map("activity_attachments")
 }
 
+// Standalone daily-activity log — mirrors ActivityLog's form shape (type,
+// time in/out or manual-hours override, attachments) but isn't tied to a
+// Task; a user logs general work here (calls, meetings, admin work, etc.)
+// throughout the day. Optionally tagged with a Project/Department. Logged
+// hours are folded into the user's Timesheet total (see dailyActivities.service
+// for the upsert-add into TimesheetEntry) so they show up in the same
+// totals/reports as task work, without needing a 1:1 row per activity.
+model DailyActivity {
+  id               String            @id @default(cuid())
+  activityType     ActivityType      @map("activity_type")
+  status           ActivityLogStatus @default(IN_PROGRESS)
+
+  activityDate     DateTime          @map("activity_date")
+  timeIn           DateTime?         @map("time_in")
+  timeOut          DateTime?         @map("time_out")
+  workingHours     Decimal           @map("working_hours") @db.Decimal(5, 2)
+  isManualOverride Boolean           @default(false) @map("is_manual_override")
+  overrideReason   String?           @map("override_reason")
+
+  description      String?
+
+  projectId        String?           @map("project_id")
+  project          Project?          @relation(fields: [projectId], references: [id])
+  departmentId     String?           @map("department_id")
+  department       Department?       @relation(fields: [departmentId], references: [id])
+
+  attachments      DailyActivityAttachment[]
+
+  loggedById       String            @map("logged_by_id")
+  loggedBy         User              @relation("DailyActivityLoggedBy", fields: [loggedById], references: [id])
+
+  createdAt        DateTime          @default(now())
+
+  @@index([loggedById])
+  @@index([activityDate])
+  @@map("daily_activities")
+}
+
+model DailyActivityAttachment {
+  id              String        @id @default(cuid())
+  dailyActivityId String        @map("daily_activity_id")
+  dailyActivity   DailyActivity @relation(fields: [dailyActivityId], references: [id], onDelete: Cascade)
+  fileName        String        @map("file_name")
+  filePath        String        @map("file_path")
+  fileSize        Int           @map("file_size")
+  mimeType        String        @map("mime_type")
+  uploadedAt      DateTime      @default(now()) @map("uploaded_at")
+
+  @@map("daily_activity_attachments")
+}
+
 enum TimesheetEntryType {
   TASK_WORK
   MEETING
   ADMIN
   LEAVE
   BREAK
+  ACTIVITY
 }
 
 model TimesheetEntry {

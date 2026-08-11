@@ -67,7 +67,7 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
       if (override) {
         payload.isManualOverride = true;
         payload.workingHours = Number(manualHours);
-        payload.overrideReason = overrideReason;
+        payload.overrideReason = overrideReason || undefined;
       } else {
         payload.timeIn = `${activityDate}T${timeIn}:00`;
         payload.timeOut = `${activityDate}T${timeOut}:00`;
@@ -151,11 +151,10 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium text-slate-700 mb-1 block">Reason for override</span>
+                <span className="text-sm font-medium text-slate-700 mb-1 block">Reason for override (optional)</span>
                 <input
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
-                  required
                   className="input min-h-[44px]"
                 />
               </label>

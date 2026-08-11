@@ -18,7 +18,6 @@ export interface CreateActivityLogInput {
 function computeWorkingHours(input: CreateActivityLogInput): number {
   if (input.isManualOverride) {
     if (input.workingHours == null) throw new AppError(400, "workingHours is required for a manual override");
-    if (!input.overrideReason) throw new AppError(400, "overrideReason is required when overriding auto-calculated hours");
     return input.workingHours;
   }
   if (!input.timeIn || !input.timeOut) {
