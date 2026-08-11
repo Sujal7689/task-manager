@@ -11,6 +11,7 @@ interface AuthUser {
 }
 
 export interface CreateDailyActivityInput {
+  name?: string;
   activityType: ActivityType;
   status?: ActivityLogStatus;
   activityDate: string;
@@ -49,6 +50,28 @@ const dailyActivityInclude = {
   attachments: true,
 } satisfies Prisma.DailyActivityInclude;
 
+// Shared by create/update/delete: adjusts (or creates/removes) the user's
+// per-day ACTIVITY TimesheetEntry by `deltaHours` — positive to add a
+// contribution, negative to reverse one. Keeps Timesheet totals accurate
+// without ever needing Prisma's compound-unique upsert (which rejects an
+// explicit `null` for the nullable taskId half of that key at runtime).
+async function adjustActivityTimesheetEntry(userId: string, date: Date, deltaHours: number) {
+  if (deltaHours === 0) return;
+  const existingEntry = await prisma.timesheetEntry.findFirst({
+    where: { userId, date, taskId: null, entryType: "ACTIVITY" },
+  });
+  if (existingEntry) {
+    const nextHours = Number(existingEntry.hoursLogged) + deltaHours;
+    if (nextHours <= 0) {
+      await prisma.timesheetEntry.delete({ where: { id: existingEntry.id } });
+    } else {
+      await prisma.timesheetEntry.update({ where: { id: existingEntry.id }, data: { hoursLogged: nextHours } });
+    }
+  } else if (deltaHours > 0) {
+    await prisma.timesheetEntry.create({ data: { userId, date, entryType: "ACTIVITY", hoursLogged: deltaHours } });
+  }
+}
+
 export async function createDailyActivity(input: CreateDailyActivityInput, loggedById: string) {
   if (input.projectId) {
     const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
@@ -63,6 +86,7 @@ export async function createDailyActivity(input: CreateDailyActivityInput, logge
 
   const activity = await prisma.dailyActivity.create({
     data: {
+      name: input.name,
       activityType: input.activityType,
       status: input.status,
       activityDate: new Date(input.activityDate),
@@ -79,25 +103,65 @@ export async function createDailyActivity(input: CreateDailyActivityInput, logge
     include: dailyActivityInclude,
   });
 
-  // Folds into the user's Timesheet total under a dedicated ACTIVITY bucket.
-  // Add-to-existing rather than one row per activity, since the underlying
-  // TimesheetEntry is uniquely keyed on (userId, date, taskId, entryType) —
-  // a plain create would collide the moment a second activity is logged on
-  // the same day. Can't use Prisma's compound-unique `upsert` here: it
-  // rejects an explicit `null` for the (nullable) taskId column of that key
-  // at runtime, so this looks the row up and creates/updates manually instead.
-  const date = startOfDay(input.activityDate);
-  const existingEntry = await prisma.timesheetEntry.findFirst({
-    where: { userId: loggedById, date, taskId: null, entryType: "ACTIVITY" },
-    select: { id: true },
-  });
-  if (existingEntry) {
-    await prisma.timesheetEntry.update({ where: { id: existingEntry.id }, data: { hoursLogged: { increment: workingHours } } });
-  } else {
-    await prisma.timesheetEntry.create({ data: { userId: loggedById, date, entryType: "ACTIVITY", hoursLogged: workingHours } });
-  }
+  await adjustActivityTimesheetEntry(loggedById, startOfDay(input.activityDate), workingHours);
 
   return activity;
+}
+
+// Admin-only (enforced at the route level). Treated as a full replace of the
+// same fields create() accepts — simpler and safer than partial-patch
+// semantics given the Timesheet resync below has to reason about exactly
+// what the old and new hour/date values were.
+export async function updateDailyActivity(id: string, input: CreateDailyActivityInput) {
+  const existing = await prisma.dailyActivity.findUnique({ where: { id } });
+  if (!existing) throw new AppError(404, "Activity not found");
+
+  if (input.projectId) {
+    const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
+    if (!project) throw new AppError(400, "Project not found");
+  }
+  if (input.departmentId) {
+    const department = await prisma.department.findUnique({ where: { id: input.departmentId }, select: { id: true } });
+    if (!department) throw new AppError(400, "Department not found");
+  }
+
+  const newWorkingHours = computeWorkingHours(input);
+
+  const updated = await prisma.dailyActivity.update({
+    where: { id },
+    data: {
+      name: input.name,
+      activityType: input.activityType,
+      status: input.status,
+      activityDate: new Date(input.activityDate),
+      timeIn: input.timeIn ? new Date(input.timeIn) : null,
+      timeOut: input.timeOut ? new Date(input.timeOut) : null,
+      workingHours: newWorkingHours,
+      isManualOverride: input.isManualOverride ?? false,
+      overrideReason: input.overrideReason ?? null,
+      description: input.description ?? null,
+      projectId: input.projectId ?? null,
+      departmentId: input.departmentId ?? null,
+    },
+    include: dailyActivityInclude,
+  });
+
+  // Reverse the old contribution, then apply the new one — handles a changed
+  // date correctly (old day loses the hours, new day gains them) as well as
+  // a changed hour count on the same day.
+  await adjustActivityTimesheetEntry(existing.loggedById, startOfDay(existing.activityDate.toISOString()), -Number(existing.workingHours));
+  await adjustActivityTimesheetEntry(existing.loggedById, startOfDay(input.activityDate), newWorkingHours);
+
+  return updated;
+}
+
+// Admin-only (enforced at the route level).
+export async function deleteDailyActivity(id: string) {
+  const existing = await prisma.dailyActivity.findUnique({ where: { id } });
+  if (!existing) throw new AppError(404, "Activity not found");
+
+  await adjustActivityTimesheetEntry(existing.loggedById, startOfDay(existing.activityDate.toISOString()), -Number(existing.workingHours));
+  await prisma.dailyActivity.delete({ where: { id } });
 }
 
 export async function listMyDailyActivities(

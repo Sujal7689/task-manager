@@ -7,6 +7,7 @@ import { AppError } from "../../utils/appError";
 
 const createSchema = z.object({
   taskId: z.string().min(1),
+  name: z.string().optional(),
   activityType: z.nativeEnum(ActivityType),
   status: z.nativeEnum(ActivityLogStatus).optional(),
   activityDate: z.string().min(1),
@@ -17,12 +18,23 @@ const createSchema = z.object({
   overrideReason: z.string().optional(),
   feedback: z.string().optional(),
 });
+const updateSchema = createSchema.omit({ taskId: true });
 
 export async function createHandler(req: Request, res: Response) {
   const body = createSchema.parse(req.body);
   // Reuses Task RBAC scoping — only users who can see the task may log activity against it.
   await tasksService.getTask(body.taskId, req.user!);
   res.status(201).json(await service.createActivityLog(body, req.user!.id));
+}
+
+export async function updateHandler(req: Request, res: Response) {
+  const body = updateSchema.parse(req.body);
+  res.json(await service.updateActivityLog(req.params.id, body));
+}
+
+export async function deleteHandler(req: Request, res: Response) {
+  await service.deleteActivityLog(req.params.id);
+  res.status(204).send();
 }
 
 export async function listForTaskHandler(req: Request, res: Response) {

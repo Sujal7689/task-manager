@@ -343,6 +343,7 @@ model ActivityLog {
   taskId           String            @map("task_id")
   task             Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
+  name             String?
   activityType     ActivityType      @map("activity_type")
   status           ActivityLogStatus @default(IN_PROGRESS)
 
@@ -390,6 +391,7 @@ model ActivityAttachment {
 // totals/reports as task work, without needing a 1:1 row per activity.
 model DailyActivity {
   id               String            @id @default(cuid())
+  name             String?
   activityType     ActivityType      @map("activity_type")
   status           ActivityLogStatus @default(IN_PROGRESS)
 

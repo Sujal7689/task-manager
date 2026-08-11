@@ -6,6 +6,7 @@ import { AppError } from "../../utils/appError";
 import { parsePagination } from "../../utils/pagination";
 
 const createSchema = z.object({
+  name: z.string().optional(),
   activityType: z.nativeEnum(ActivityType),
   status: z.nativeEnum(ActivityLogStatus).optional(),
   activityDate: z.string().min(1),
@@ -24,6 +25,16 @@ const rangeSchema = z.object({ from: z.string().optional(), to: z.string().optio
 export async function createHandler(req: Request, res: Response) {
   const body = createSchema.parse(req.body);
   res.status(201).json(await service.createDailyActivity(body, req.user!.id));
+}
+
+export async function updateHandler(req: Request, res: Response) {
+  const body = createSchema.parse(req.body);
+  res.json(await service.updateDailyActivity(req.params.id, body));
+}
+
+export async function deleteHandler(req: Request, res: Response) {
+  await service.deleteDailyActivity(req.params.id);
+  res.status(204).send();
 }
 
 export async function listMineHandler(req: Request, res: Response) {
