@@ -86,7 +86,8 @@ export default function CommentsPanel({ taskId }: { taskId: string }) {
       <ul className="space-y-3">
         {comments.map((c) => (
           <li key={c.id} className="bg-white border border-slate-200 rounded-xl p-4">
-            <p className="text-sm text-slate-800">{c.body}</p>
+            <p className="text-sm font-medium text-slate-900">{userName(c.authorId)}</p>
+            <p className="text-sm text-slate-800 mt-1">{c.body}</p>
             {c.mentionedUserIds.length > 0 && (
               <p className="text-xs text-slate-500 mt-2">
                 Mentioned: {c.mentionedUserIds.map((id) => `@${userName(id)}`).join(", ")}

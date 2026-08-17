@@ -33,6 +33,7 @@ export async function createComment(input: CreateCommentInput) {
       type: "MENTIONED",
       message: `You were mentioned in a comment on ${task?.taskNumber} — ${task?.name}`,
       taskId: input.taskId,
+      sendEmailToo: true,
     });
   }
 
