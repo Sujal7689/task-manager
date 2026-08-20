@@ -21,7 +21,7 @@ router.post("/bulk-import", canCreateEdit, csvUpload.single("file"), asyncHandle
 router.get("/:id", asyncHandler(controller.getHandler));
 router.post("/", canCreateEdit, asyncHandler(controller.createHandler));
 router.post("/:id/clone", canCreateEdit, asyncHandler(controller.cloneHandler));
-router.post("/:id/attachments", attachmentUpload.single("file"), asyncHandler(controller.uploadAttachmentHandler));
+router.post("/:id/attachments", attachmentUpload.array("file", 10), asyncHandler(controller.uploadAttachmentHandler));
 router.delete("/:id/attachments/:attachmentId", asyncHandler(controller.deleteAttachmentHandler));
 router.patch("/:id", canCreateEdit, asyncHandler(controller.updateHandler));
 router.patch("/:id/progress", asyncHandler(controller.updateProgressHandler));

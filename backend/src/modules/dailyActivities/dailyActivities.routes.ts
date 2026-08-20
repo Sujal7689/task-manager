@@ -17,6 +17,6 @@ router.get("/mine", asyncHandler(listMineHandler));
 router.get("/team", asyncHandler(listTeamHandler));
 router.patch("/:id", canEditOrDelete, asyncHandler(updateHandler));
 router.delete("/:id", canEditOrDelete, asyncHandler(deleteHandler));
-router.post("/:id/attachments", upload.single("file"), asyncHandler(uploadAttachmentHandler));
+router.post("/:id/attachments", upload.array("file", 10), asyncHandler(uploadAttachmentHandler));
 
 export default router;

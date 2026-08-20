@@ -59,8 +59,11 @@ export async function getManagerSummary(user: AuthUser) {
 
   const statuses = ["NOT_STARTED", "IN_PROGRESS", "ON_HOLD", "UNDER_REVIEW", "COMPLETED", "CANCELLED"] as const;
   const heatmap = statuses.map((status) => ({ status, count: tasks.filter((t) => t.status === status).length }));
-  const now = new Date();
-  const overdueCount = tasks.filter((t) => t.dueDate && t.dueDate < now && t.status !== "COMPLETED" && t.status !== "CANCELLED").length;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const overdueCount = tasks.filter(
+    (t) => t.dueDate && t.dueDate < startOfToday && t.status !== "COMPLETED" && t.status !== "CANCELLED",
+  ).length;
 
   return { heatmap, overdueCount };
 }

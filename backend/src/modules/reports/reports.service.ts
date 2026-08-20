@@ -163,7 +163,10 @@ export async function groupedTaskReport(user: AuthUser, filters: GroupedReportFi
 
   const spentByTask = await getSpentHoursByTask(tasks.map((t) => t.id));
 
-  const now = new Date();
+  // Anchored to the start of today, not the exact current moment — see the
+  // matching comment in tasks.service.ts's buildTaskWhereClauses.
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
   interface Accumulator {
     key: string;
     label: string;
@@ -187,8 +190,12 @@ export async function groupedTaskReport(user: AuthUser, filters: GroupedReportFi
     g.spentHours += spentByTask.get(task.id) ?? 0;
     if (task.status === "COMPLETED") {
       g.completed++;
-      if (!task.dueDate || (task.closedAt && task.closedAt <= task.dueDate)) g.onTime++;
-    } else if (task.dueDate && task.dueDate < now && task.status !== "CANCELLED") {
+      // dueDate is stored at midnight of the due date, so a task closed
+      // anytime that same day is on-time — compare against end of day.
+      const dueDateEnd = task.dueDate ? new Date(task.dueDate) : null;
+      dueDateEnd?.setHours(23, 59, 59, 999);
+      if (!dueDateEnd || (task.closedAt && task.closedAt <= dueDateEnd)) g.onTime++;
+    } else if (task.dueDate && task.dueDate < startOfToday && task.status !== "CANCELLED") {
       g.overdue++;
     }
   }

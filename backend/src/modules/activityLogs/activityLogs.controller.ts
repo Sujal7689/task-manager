@@ -43,12 +43,11 @@ export async function listForTaskHandler(req: Request, res: Response) {
 }
 
 export async function uploadAttachmentHandler(req: Request, res: Response) {
-  if (!req.file) throw new AppError(400, "No file uploaded (field name: 'file')");
-  const attachment = await service.addActivityAttachment(req.params.id, {
-    fileName: req.file.originalname,
-    filePath: `uploads/activity-logs/${req.file.filename}`,
-    fileSize: req.file.size,
-    mimeType: req.file.mimetype,
-  });
-  res.status(201).json(attachment);
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) throw new AppError(400, "No file uploaded (field name: 'file')");
+  const attachments = await service.addActivityAttachments(
+    req.params.id,
+    files.map((f) => ({ fileName: f.originalname, filePath: `uploads/activity-logs/${f.filename}`, fileSize: f.size, mimeType: f.mimetype })),
+  );
+  res.status(201).json(attachments);
 }

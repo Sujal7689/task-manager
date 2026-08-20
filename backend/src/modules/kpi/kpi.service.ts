@@ -3,12 +3,20 @@ import { topLevelTaskFilter } from "../tasks/tasks.service";
 
 export interface KpiWeights {
   onTime: number;
-  estimateAccuracy: number;
   volume: number;
   quality: number;
 }
 
-const DEFAULT_WEIGHTS: KpiWeights = { onTime: 40, estimateAccuracy: 25, volume: 20, quality: 15 };
+// KPI score is measured on punctuality, volume, and quality only — Estimate
+// Accuracy is still computed per-user as an informational stat (see
+// computeUserKpiBase) but no longer factors into the weighted score.
+const DEFAULT_WEIGHTS: KpiWeights = { onTime: 45, volume: 30, quality: 25 };
+
+function endOfDay(date: Date): Date {
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return end;
+}
 
 // Section 12 decision #2: 40/25/20/15 defaults, configurable per-company by Admin (Phase 6 UI).
 export async function getEffectiveWeights(companyId?: string | null): Promise<KpiWeights> {
@@ -19,7 +27,6 @@ export async function getEffectiveWeights(companyId?: string | null): Promise<Kp
   if (!config) return DEFAULT_WEIGHTS;
   return {
     onTime: Number(config.onTimeWeight),
-    estimateAccuracy: Number(config.estimateAccuracyWeight),
     volume: Number(config.volumeWeight),
     quality: Number(config.qualityWeight),
   };
@@ -41,7 +48,6 @@ export async function upsertWeightConfig(companyId: string | null, weights: Part
       where: { id: existing.id },
       data: {
         onTimeWeight: weights.onTime,
-        estimateAccuracyWeight: weights.estimateAccuracy,
         volumeWeight: weights.volume,
         qualityWeight: weights.quality,
       },
@@ -52,7 +58,6 @@ export async function upsertWeightConfig(companyId: string | null, weights: Part
     data: {
       companyId,
       onTimeWeight: weights.onTime ?? DEFAULT_WEIGHTS.onTime,
-      estimateAccuracyWeight: weights.estimateAccuracy ?? DEFAULT_WEIGHTS.estimateAccuracy,
       volumeWeight: weights.volume ?? DEFAULT_WEIGHTS.volume,
       qualityWeight: weights.quality ?? DEFAULT_WEIGHTS.quality,
     },
@@ -75,7 +80,10 @@ async function computeUserKpiBase(userId: string, from: Date, to: Date): Promise
   });
 
   const totalClosed = completedTasks.length;
-  const onTimeCount = completedTasks.filter((t) => !t.dueDate || (t.closedAt && t.closedAt <= t.dueDate)).length;
+  // dueDate is stored at midnight of the due date, so a task closed anytime
+  // during that same day must count as on-time — compare against the end of
+  // the due date, not its start (same fix as the Tasks-list overdue filter).
+  const onTimeCount = completedTasks.filter((t) => !t.dueDate || (t.closedAt && t.closedAt <= endOfDay(t.dueDate))).length;
   const onTimePct = totalClosed === 0 ? 100 : (onTimeCount / totalClosed) * 100;
 
   const withEstimate = completedTasks.filter((t) => t.estimatedHours != null && Number(t.estimatedHours) > 0);
@@ -131,11 +139,7 @@ export async function computeKpiForUser(
   const base = await computeUserKpiBase(userId, from, to);
   const volumeScore = teamAvgVolume > 0 ? Math.min(150, (base.totalClosed / teamAvgVolume) * 100) : base.totalClosed > 0 ? 100 : 0;
   const kpiScore =
-    (base.onTimePct * weights.onTime +
-      base.estimateAccuracy * weights.estimateAccuracy +
-      volumeScore * weights.volume +
-      base.qualityScore * weights.quality) /
-    100;
+    (base.onTimePct * weights.onTime + volumeScore * weights.volume + base.qualityScore * weights.quality) / 100;
 
   return { ...base, volumeScore, kpiScore: Math.round(kpiScore * 100) / 100 };
 }

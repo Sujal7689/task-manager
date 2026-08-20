@@ -34,6 +34,7 @@ const FILTER_KEYS = [
   "dueWithinDays",
   "managerId",
   "search",
+  "unrated",
 ] as const;
 
 export default function TaskList() {
@@ -56,6 +57,8 @@ export default function TaskList() {
   const [users, setUsers] = useState<User[]>([]);
 
   const canCreate = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD" || user?.role === "STAFF";
+  const canRateBroadly = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
+  const canRateTask = (t: Task) => canRateBroadly || t.assignees.some((a) => a.user.reportingManagerId === user?.id);
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {};
@@ -152,6 +155,11 @@ export default function TaskList() {
     a.download = "task-import-template.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function rateTask(t: Task, rating: number) {
+    await api.patch(`/tasks/${t.id}/progress`, { status: t.status, percentComplete: t.percentComplete, closureRating: rating });
+    refresh();
   }
 
   async function handleImport(e: ChangeEvent<HTMLInputElement>) {
@@ -278,6 +286,14 @@ export default function TaskList() {
         >
           Critical
         </button>
+        {canRateBroadly && (
+          <button
+            onClick={() => setFilter("unrated", filters.unrated === "true" ? "" : "true")}
+            className={`text-sm px-3 py-1.5 rounded-full whitespace-nowrap ${filters.unrated === "true" ? "bg-amber-500 text-white" : "bg-white border border-slate-200 text-amber-600"}`}
+          >
+            Unrated
+          </button>
+        )}
         <button
           onClick={() => setShowMoreFilters((v) => !v)}
           className="text-sm px-3 py-1.5 rounded-full whitespace-nowrap bg-white border border-slate-200 text-slate-600"
@@ -344,6 +360,7 @@ export default function TaskList() {
                 <SortableHeader label="Priority" field="priority" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Status" field="status" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="%" field="percentComplete" sortBy={sortBy} sortDir={sortDir} onSort={toggleSort} align="right" />
+                <th className="px-4 py-2">Rating</th>
               </tr>
             </thead>
             <tbody>
@@ -373,6 +390,28 @@ export default function TaskList() {
                     <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{t.status}</span>
                   </td>
                   <td className="px-4 py-2 text-right text-slate-600">{t.percentComplete}%</td>
+                  <td className="px-4 py-2">
+                    {t.status === "COMPLETED" ? (
+                      <div className="flex gap-0.5">
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            disabled={!canRateTask(t)}
+                            onClick={() => rateTask(t, n)}
+                            className={`text-base leading-none ${canRateTask(t) ? "cursor-pointer" : "cursor-default"} ${
+                              (t.closureRating ?? 0) >= n ? "text-amber-400" : "text-slate-300"
+                            }`}
+                            aria-label={`Rate ${t.taskNumber} ${n} star${n > 1 ? "s" : ""}`}
+                          >
+                            ★
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

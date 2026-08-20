@@ -1,10 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api } from "../../api/client";
+import { api, apiBaseUrl } from "../../api/client";
 import { submitActivityLog } from "../../api/offlineQueue";
 import { useAuth } from "../../context/AuthContext";
+import ActivityDetailModal from "../../components/ActivityDetailModal";
 
 type ActivityType = "UPDATE" | "CALL" | "MEETING" | "FOLLOW_UP" | "DOCUMENT" | "OTHER";
 type ActivityStatus = "IN_PROGRESS" | "BLOCKED" | "COMPLETED";
+
+interface Attachment {
+  id: string;
+  fileName: string;
+  filePath: string;
+  fileSize: number;
+}
 
 interface ActivityLogEntry {
   id: string;
@@ -19,6 +27,7 @@ interface ActivityLogEntry {
   overrideReason: string | null;
   feedback: string | null;
   loggedBy: { name: string };
+  attachments: Attachment[];
 }
 
 const activityTypes: ActivityType[] = ["UPDATE", "CALL", "MEETING", "FOLLOW_UP", "DOCUMENT", "OTHER"];
@@ -54,7 +63,9 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [viewingEntry, setViewingEntry] = useState<ActivityLogEntry | null>(null);
+  const uploadsOrigin = apiBaseUrl.replace(/\/api\/?$/, "");
 
   function refresh() {
     api.get<ActivityLogEntry[]>(`/activity-logs/task/${taskId}`).then((res) => setEntries(res.data));
@@ -65,7 +76,7 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
   function openCreateForm() {
     setEditingId(null);
     setForm(emptyForm);
-    setAttachment(null);
+    setAttachments([]);
     setError(null);
     setShowForm(true);
   }
@@ -84,7 +95,7 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
       overrideReason: entry.overrideReason ?? "",
       feedback: entry.feedback ?? "",
     });
-    setAttachment(null);
+    setAttachments([]);
     setError(null);
     setShowForm(true);
   }
@@ -127,25 +138,25 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
         // unlike creation below, they always require connectivity rather than
         // going through the offline queue.
         await api.patch(`/activity-logs/${editingId}`, payload);
-        if (attachment) {
+        if (attachments.length > 0) {
           const formData = new FormData();
-          formData.append("file", attachment);
+          attachments.forEach((file) => formData.append("file", file));
           await api.post(`/activity-logs/${editingId}/attachments`, formData, { headers: { "Content-Type": "multipart/form-data" } });
         }
         setMessage("Activity entry updated.");
-        setAttachment(null);
+        setAttachments([]);
         setShowForm(false);
         setEditingId(null);
         refresh();
       } else {
         const result = await submitActivityLog({ ...payload, taskId });
-        if (!result.queued && result.id && attachment) {
+        if (!result.queued && result.id && attachments.length > 0) {
           const formData = new FormData();
-          formData.append("file", attachment);
+          attachments.forEach((file) => formData.append("file", file));
           await api.post(`/activity-logs/${result.id}/attachments`, formData, { headers: { "Content-Type": "multipart/form-data" } });
         }
         setMessage(result.queued ? "You're offline — this entry was saved and will sync automatically." : "Activity logged.");
-        setAttachment(null);
+        setAttachments([]);
         setShowForm(false);
         if (!result.queued) refresh();
       }
@@ -255,10 +266,11 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700 mb-1 block">Attachment (optional)</span>
+            <span className="text-sm font-medium text-slate-700 mb-1 block">Attachments (optional)</span>
             <input
               type="file"
-              onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+              multiple
+              onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
               className="block w-full text-sm text-slate-600"
             />
           </label>
@@ -271,7 +283,11 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
 
       <ul className="divide-y divide-slate-100 bg-white border border-slate-200 rounded-xl">
         {entries.map((e) => (
-          <li key={e.id} className="px-4 py-3 group">
+          <li
+            key={e.id}
+            className="px-4 py-3 group cursor-pointer hover:bg-slate-50"
+            onClick={() => setViewingEntry(e)}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-slate-900">{e.name || "(untitled activity)"}</p>
@@ -281,18 +297,58 @@ export default function ActivityLogPanel({ taskId }: { taskId: string }) {
                 <span className="text-xs text-slate-500 whitespace-nowrap">{new Date(e.activityDate).toLocaleDateString()} · {e.workingHours}h</span>
                 {isAdmin && (
                   <span className="hidden group-hover:flex gap-2 text-xs">
-                    <button onClick={() => openEditForm(e)} className="text-slate-500 hover:text-slate-900">Edit</button>
-                    <button onClick={() => handleDelete(e)} className="text-red-500 hover:text-red-700">Delete</button>
+                    <button onClick={(ev) => { ev.stopPropagation(); openEditForm(e); }} className="text-slate-500 hover:text-slate-900">Edit</button>
+                    <button onClick={(ev) => { ev.stopPropagation(); handleDelete(e); }} className="text-red-500 hover:text-red-700">Delete</button>
                   </span>
                 )}
               </div>
             </div>
             {e.feedback && <p className="text-sm text-slate-600 mt-1">{e.feedback}</p>}
+            {e.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {e.attachments.map((a) => (
+                  <a
+                    key={a.id}
+                    href={`${uploadsOrigin}/${a.filePath}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(ev) => ev.stopPropagation()}
+                    className="text-xs text-slate-500 hover:underline border border-slate-200 rounded-full px-2 py-1"
+                  >
+                    {a.fileName}
+                  </a>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-slate-400 mt-1">Logged by {e.loggedBy.name}</p>
           </li>
         ))}
         {entries.length === 0 && <li className="px-4 py-6 text-sm text-slate-400">No activity logged yet.</li>}
       </ul>
+
+      {viewingEntry && (
+        <ActivityDetailModal
+          title={viewingEntry.name || "(untitled activity)"}
+          subtitle={`${viewingEntry.activityType.replace("_", "-")} · ${viewingEntry.status.replace("_", " ")}`}
+          onClose={() => setViewingEntry(null)}
+          attachments={viewingEntry.attachments}
+          rows={[
+            { label: "Date", value: new Date(viewingEntry.activityDate).toLocaleDateString() },
+            { label: "Logged by", value: viewingEntry.loggedBy.name },
+            { label: "Hours", value: `${viewingEntry.workingHours}h` },
+            {
+              label: "Time In / Out",
+              value: viewingEntry.isManualOverride
+                ? "Manual entry"
+                : viewingEntry.timeIn && viewingEntry.timeOut
+                  ? `${new Date(viewingEntry.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${new Date(viewingEntry.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : null,
+            },
+            { label: "Override reason", value: viewingEntry.overrideReason },
+            { label: "Feedback", value: viewingEntry.feedback },
+          ]}
+        />
+      )}
     </div>
   );
 }

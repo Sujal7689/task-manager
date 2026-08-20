@@ -95,11 +95,12 @@ export interface Task {
   department?: { id: string; name: string } | null;
   assignedById: string;
   assignedBy?: { id: string; name: string };
-  assignees: { userId: string; user: { id: string; name: string; email: string } }[];
+  assignees: { userId: string; user: { id: string; name: string; email: string; reportingManagerId?: string | null } }[];
   partyName?: string | null;
   refId?: string | null;
   status: TaskStatus;
   percentComplete: number;
+  closureRating?: number | null;
   source: "INTERNAL" | "ZOHO_CRM";
   createdAt: string;
   updatedAt: string;

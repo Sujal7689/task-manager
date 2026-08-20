@@ -5,7 +5,6 @@ import { useToast } from "../../context/ToastContext";
 
 interface Weights {
   onTimeWeight: number | string;
-  estimateAccuracyWeight: number | string;
   volumeWeight: number | string;
   qualityWeight: number | string;
 }
@@ -20,7 +19,7 @@ interface EscalationRule {
 
 export default function KpiEscalationConfig() {
   const { showToast } = useToast();
-  const [weights, setWeights] = useState<Weights>({ onTimeWeight: 40, estimateAccuracyWeight: 25, volumeWeight: 20, qualityWeight: 15 });
+  const [weights, setWeights] = useState<Weights>({ onTimeWeight: 45, volumeWeight: 30, qualityWeight: 25 });
   const [rules, setRules] = useState<EscalationRule[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [overdueDay, setOverdueDay] = useState("14");
@@ -44,7 +43,6 @@ export default function KpiEscalationConfig() {
     try {
       await api.put("/kpi/weights", {
         onTime: Number(weights.onTimeWeight),
-        estimateAccuracy: Number(weights.estimateAccuracyWeight),
         volume: Number(weights.volumeWeight),
         quality: Number(weights.qualityWeight),
       });
@@ -77,17 +75,15 @@ export default function KpiEscalationConfig() {
     refresh();
   }
 
-  const total =
-    Number(weights.onTimeWeight) + Number(weights.estimateAccuracyWeight) + Number(weights.volumeWeight) + Number(weights.qualityWeight);
+  const total = Number(weights.onTimeWeight) + Number(weights.volumeWeight) + Number(weights.qualityWeight);
 
   return (
     <div className="grid sm:grid-cols-2 gap-4">
       <section className="bg-white border border-slate-200 rounded-xl p-4">
         <h3 className="font-medium text-slate-900 mb-1">KPI weight formula</h3>
-        <p className="text-xs text-slate-500 mb-3">Section 12: defaults to 40/25/20/15. Should total 100.</p>
+        <p className="text-xs text-slate-500 mb-3">Measured on punctuality, volume, and quality only. Defaults to 45/30/25. Should total 100.</p>
         <form onSubmit={saveWeights} className="space-y-3">
           <WeightField label="On-Time Completion %" value={weights.onTimeWeight} onChange={(v) => setWeights({ ...weights, onTimeWeight: v })} />
-          <WeightField label="Estimate Accuracy" value={weights.estimateAccuracyWeight} onChange={(v) => setWeights({ ...weights, estimateAccuracyWeight: v })} />
           <WeightField label="Task Volume" value={weights.volumeWeight} onChange={(v) => setWeights({ ...weights, volumeWeight: v })} />
           <WeightField label="Quality/Feedback" value={weights.qualityWeight} onChange={(v) => setWeights({ ...weights, qualityWeight: v })} />
           <p className={`text-xs ${total === 100 ? "text-slate-400" : "text-amber-600"}`}>Total: {total}{total !== 100 && " (should be 100)"}</p>

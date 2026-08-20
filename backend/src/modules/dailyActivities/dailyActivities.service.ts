@@ -220,10 +220,14 @@ export interface UploadedFileInfo {
   mimeType: string;
 }
 
-export async function addDailyActivityAttachment(dailyActivityId: string, file: UploadedFileInfo) {
+export async function addDailyActivityAttachments(dailyActivityId: string, files: UploadedFileInfo[]) {
   const activity = await prisma.dailyActivity.findUnique({ where: { id: dailyActivityId } });
   if (!activity) throw new AppError(404, "Activity not found");
-  return prisma.dailyActivityAttachment.create({
-    data: { dailyActivityId, fileName: file.fileName, filePath: file.filePath, fileSize: file.fileSize, mimeType: file.mimeType },
-  });
+  return Promise.all(
+    files.map((file) =>
+      prisma.dailyActivityAttachment.create({
+        data: { dailyActivityId, fileName: file.fileName, filePath: file.filePath, fileSize: file.fileSize, mimeType: file.mimeType },
+      }),
+    ),
+  );
 }

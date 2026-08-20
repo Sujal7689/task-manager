@@ -52,6 +52,7 @@ const updateSchema = taskBaseSchema.partial().refine(requiresDepartmentOnUpdate,
 const progressSchema = z.object({
   status: z.nativeEnum(TaskStatus).optional(),
   percentComplete: z.number().min(0).max(100).optional(),
+  closureRating: z.number().int().min(1).max(5).optional(),
 });
 
 const listQuerySchema = z.object({
@@ -69,6 +70,7 @@ const listQuerySchema = z.object({
   dueWithinDays: z.coerce.number().int().min(0).optional(),
   managerId: z.string().optional(),
   search: z.string().optional(),
+  unrated: z.coerce.boolean().optional(),
   sortBy: z.enum(service.taskSortFields).optional(),
   sortDir: z.enum(["asc", "desc"]).optional(),
 });
@@ -95,6 +97,12 @@ export async function createHandler(req: Request, res: Response) {
 
 export async function updateHandler(req: Request, res: Response) {
   const body = updateSchema.parse(req.body);
+  if (body.closureRating != null) {
+    const canRate = await runWithUser(req.user!.id, () => service.canRateTaskClosure(req.params.id, req.user!));
+    if (!canRate) {
+      throw new AppError(403, "Only an Admin, Manager, Team Lead, or the assignee's reporting manager can rate a task");
+    }
+  }
   res.json(await runWithUser(req.user!.id, () => service.updateTask(req.params.id, body)));
 }
 
@@ -104,6 +112,12 @@ export async function updateProgressHandler(req: Request, res: Response) {
   const isAssignee = await runWithUser(req.user!.id, () => service.isTaskAssignee(req.params.id, req.user!.id));
   if (req.user!.role === Role.STAFF && !isAssignee) {
     throw new AppError(403, "You can only update tasks assigned to you");
+  }
+  if (body.closureRating != null) {
+    const canRate = await runWithUser(req.user!.id, () => service.canRateTaskClosure(req.params.id, req.user!));
+    if (!canRate) {
+      throw new AppError(403, "Only an Admin, Manager, Team Lead, or the assignee's reporting manager can rate a task");
+    }
   }
   res.json(await runWithUser(req.user!.id, () => service.updateTaskProgress(req.params.id, body)));
 }
@@ -149,15 +163,16 @@ export async function bulkImportTemplateHandler(_req: Request, res: Response) {
 }
 
 export async function uploadAttachmentHandler(req: Request, res: Response) {
-  if (!req.file) throw new AppError(400, "No file uploaded (field name: 'file')");
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) throw new AppError(400, "No file uploaded (field name: 'file')");
   await runWithUser(req.user!.id, () => service.getTask(req.params.id, req.user!)); // enforces the same RBAC visibility as viewing the task
-  const attachment = await runWithUser(req.user!.id, () => service.addTaskAttachment(req.params.id, {
-    fileName: req.file!.originalname,
-    filePath: `uploads/tasks/${req.file!.filename}`,
-    fileSize: req.file!.size,
-    mimeType: req.file!.mimetype,
-  }));
-  res.status(201).json(attachment);
+  const attachments = await runWithUser(req.user!.id, () =>
+    service.addTaskAttachments(
+      req.params.id,
+      files.map((f) => ({ fileName: f.originalname, filePath: `uploads/tasks/${f.filename}`, fileSize: f.size, mimeType: f.mimetype })),
+    ),
+  );
+  res.status(201).json(attachments);
 }
 
 export async function deleteAttachmentHandler(req: Request, res: Response) {

@@ -33,7 +33,7 @@ export default function StaffPerformanceDetail() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           <Metric label="KPI Score" value={latest.kpiScore.toFixed(1)} />
           <Metric label="On-time %" value={`${latest.onTimePct.toFixed(0)}%`} />
-          <Metric label="Estimate accuracy" value={`${latest.estimateAccuracy.toFixed(0)}%`} />
+          <Metric label="Volume score" value={`${latest.volumeScore.toFixed(0)}%`} />
           <Metric label="Quality score" value={`${latest.qualityScore.toFixed(0)}%`} />
         </div>
       )}

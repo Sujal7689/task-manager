@@ -5,13 +5,12 @@ import * as service from "./kpi.service";
 export async function getConfigHandler(req: Request, res: Response) {
   const companyId = (req.query.companyId as string | undefined) ?? null;
   const config = await service.getWeightConfig(companyId);
-  res.json(config ?? { onTimeWeight: 40, estimateAccuracyWeight: 25, volumeWeight: 20, qualityWeight: 15, companyId });
+  res.json(config ?? { onTimeWeight: 45, volumeWeight: 30, qualityWeight: 25, companyId });
 }
 
 const updateSchema = z.object({
   companyId: z.string().nullable().optional(),
   onTime: z.number().min(0).max(100).optional(),
-  estimateAccuracy: z.number().min(0).max(100).optional(),
   volume: z.number().min(0).max(100).optional(),
   quality: z.number().min(0).max(100).optional(),
 });

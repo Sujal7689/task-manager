@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { Department, Project } from "../../types";
 import Pagination from "../../components/Pagination";
+import ActivityDetailModal from "../../components/ActivityDetailModal";
 
 type ActivityType = "UPDATE" | "CALL" | "MEETING" | "FOLLOW_UP" | "DOCUMENT" | "OTHER";
 type ActivityStatus = "IN_PROGRESS" | "BLOCKED" | "COMPLETED";
@@ -79,9 +80,10 @@ export default function ActivityLog() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [viewingEntry, setViewingEntry] = useState<ActivityEntry | null>(null);
 
   function refresh() {
     const endpoint = view === "team" ? "/daily-activities/team" : "/daily-activities/mine";
@@ -110,7 +112,7 @@ export default function ActivityLog() {
   function openCreateForm() {
     setEditingId(null);
     setForm(emptyForm);
-    setAttachment(null);
+    setAttachments([]);
     setError(null);
     setShowForm(true);
   }
@@ -131,7 +133,7 @@ export default function ActivityLog() {
       projectId: entry.project?.id ?? "",
       departmentId: entry.department?.id ?? "",
     });
-    setAttachment(null);
+    setAttachments([]);
     setError(null);
     setShowForm(true);
   }
@@ -175,9 +177,9 @@ export default function ActivityLog() {
         ? (await api.patch(`/daily-activities/${editingId}`, payload)).data.id
         : (await api.post("/daily-activities", payload)).data.id;
 
-      if (attachment) {
+      if (attachments.length > 0) {
         const formData = new FormData();
-        formData.append("file", attachment);
+        attachments.forEach((file) => formData.append("file", file));
         await api.post(`/daily-activities/${activityId}/attachments`, formData, { headers: { "Content-Type": "multipart/form-data" } });
       }
       showToast(editingId ? "Activity updated." : "Activity logged.");
@@ -330,8 +332,13 @@ export default function ActivityLog() {
           </label>
 
           <label className="block">
-            <span className="text-sm font-medium text-slate-700 mb-1 block">Attachment (optional)</span>
-            <input type="file" onChange={(e) => setAttachment(e.target.files?.[0] ?? null)} className="block w-full text-sm text-slate-600" />
+            <span className="text-sm font-medium text-slate-700 mb-1 block">Attachments (optional)</span>
+            <input
+              type="file"
+              multiple
+              onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
+              className="block w-full text-sm text-slate-600"
+            />
           </label>
 
           <button type="submit" disabled={saving} className="w-full bg-slate-900 text-white rounded-lg py-2.5 font-medium disabled:opacity-50">
@@ -342,7 +349,11 @@ export default function ActivityLog() {
 
       <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
         {entries.map((e) => (
-          <div key={e.id} className="px-4 py-3 group">
+          <div
+            key={e.id}
+            className="px-4 py-3 group cursor-pointer hover:bg-slate-50"
+            onClick={() => setViewingEntry(e)}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-slate-900">
@@ -355,8 +366,8 @@ export default function ActivityLog() {
                 <span className="text-xs text-slate-500 whitespace-nowrap">{new Date(e.activityDate).toLocaleDateString()} · {e.workingHours}h</span>
                 {isAdmin && (
                   <span className="hidden group-hover:flex gap-2 text-xs">
-                    <button onClick={() => openEditForm(e)} className="text-slate-500 hover:text-slate-900">Edit</button>
-                    <button onClick={() => handleDelete(e)} className="text-red-500 hover:text-red-700">Delete</button>
+                    <button onClick={(ev) => { ev.stopPropagation(); openEditForm(e); }} className="text-slate-500 hover:text-slate-900">Edit</button>
+                    <button onClick={(ev) => { ev.stopPropagation(); handleDelete(e); }} className="text-red-500 hover:text-red-700">Delete</button>
                   </span>
                 )}
               </div>
@@ -375,6 +386,7 @@ export default function ActivityLog() {
                     href={`${uploadsOrigin}/${a.filePath}`}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={(ev) => ev.stopPropagation()}
                     className="text-xs text-slate-500 hover:underline border border-slate-200 rounded-full px-2 py-1"
                   >
                     {a.fileName}
@@ -387,6 +399,32 @@ export default function ActivityLog() {
         {entries.length === 0 && <p className="px-4 py-6 text-sm text-slate-400">No activities logged yet.</p>}
         <Pagination page={pageInfo.page} totalPages={pageInfo.totalPages} total={pageInfo.total} pageSize={pageInfo.pageSize} onPageChange={setPage} />
       </div>
+
+      {viewingEntry && (
+        <ActivityDetailModal
+          title={viewingEntry.name || "(untitled activity)"}
+          subtitle={`${viewingEntry.activityType.replace("_", "-")} · ${viewingEntry.status.replace("_", " ")}`}
+          onClose={() => setViewingEntry(null)}
+          attachments={viewingEntry.attachments}
+          rows={[
+            { label: "Date", value: new Date(viewingEntry.activityDate).toLocaleDateString() },
+            { label: "Logged by", value: viewingEntry.loggedBy.name },
+            { label: "Hours", value: `${viewingEntry.workingHours}h` },
+            {
+              label: "Time In / Out",
+              value: viewingEntry.isManualOverride
+                ? "Manual entry"
+                : viewingEntry.timeIn && viewingEntry.timeOut
+                  ? `${new Date(viewingEntry.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${new Date(viewingEntry.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : null,
+            },
+            { label: "Override reason", value: viewingEntry.overrideReason },
+            { label: "Project", value: viewingEntry.project?.name },
+            { label: "Department", value: viewingEntry.department?.name },
+            { label: "Description", value: viewingEntry.description },
+          ]}
+        />
+      )}
     </div>
   );
 }

@@ -144,10 +144,14 @@ export interface UploadedFileInfo {
   mimeType: string;
 }
 
-export async function addActivityAttachment(activityLogId: string, file: UploadedFileInfo) {
+export async function addActivityAttachments(activityLogId: string, files: UploadedFileInfo[]) {
   const activityLog = await prisma.activityLog.findUnique({ where: { id: activityLogId } });
   if (!activityLog) throw new AppError(404, "Activity log entry not found");
-  return prisma.activityAttachment.create({
-    data: { activityLogId, fileName: file.fileName, filePath: file.filePath, fileSize: file.fileSize, mimeType: file.mimeType },
-  });
+  return Promise.all(
+    files.map((file) =>
+      prisma.activityAttachment.create({
+        data: { activityLogId, fileName: file.fileName, filePath: file.filePath, fileSize: file.fileSize, mimeType: file.mimeType },
+      }),
+    ),
+  );
 }

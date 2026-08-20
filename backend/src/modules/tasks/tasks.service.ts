@@ -27,7 +27,7 @@ const taskInclude = {
   subCategory: true,
   department: { select: { id: true, name: true } },
   assignedBy: { select: { id: true, name: true } },
-  assignees: { include: { user: { select: { id: true, name: true, email: true } } } },
+  assignees: { include: { user: { select: { id: true, name: true, email: true, reportingManagerId: true } } } },
   attachments: true,
 } satisfies Prisma.TaskInclude;
 
@@ -145,6 +145,7 @@ export interface TaskFilterInput {
   dueWithinDays?: number; // due between now and now+N days (e.g. 0 = "due today", 7 = "due this week")
   managerId?: string; // "team" — tasks assigned to this manager's direct reports (+ self)
   search?: string; // free-text match against task number or name
+  unrated?: boolean; // completed tasks with no closure rating yet (Section: closure rating catch-up view)
 }
 
 export async function buildTaskFilterWhere(filters: TaskFilterInput): Promise<Prisma.TaskWhereInput[]> {
@@ -157,6 +158,7 @@ export async function buildTaskFilterWhere(filters: TaskFilterInput): Promise<Pr
   if (filters.priority) clauses.push({ priority: filters.priority });
   if (filters.assigneeId) clauses.push({ assignees: { some: { userId: filters.assigneeId } } });
   if (filters.assignedById) clauses.push({ assignedById: filters.assignedById });
+  if (filters.unrated) clauses.push({ status: "COMPLETED", closureRating: null });
 
   // Task.departmentId/companyId are optional and rarely set directly — most
   // tasks only carry these via their Project, which always has them.
@@ -605,7 +607,21 @@ export async function updateTask(id: string, input: Partial<TaskInput>) {
 }
 
 // Restricted update available to Staff on tasks assigned to them: status + % complete only.
-export async function updateTaskProgress(id: string, data: { status?: TaskStatus; percentComplete?: number }) {
+// Section: closure rating (feeds the KPI Quality Score) — restricted to Admin,
+// Manager, Team Lead, or specifically the reporting manager of one of the
+// task's assignees (a Team Lead/Manager not in that assignee's chain can
+// still rate via their blanket role, per the broader roles above).
+export async function canRateTaskClosure(taskId: string, user: AuthUser): Promise<boolean> {
+  if (user.role === Role.ADMIN || user.role === Role.MANAGER || user.role === Role.TEAM_LEAD) return true;
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { assignees: { select: { user: { select: { reportingManagerId: true } } } } },
+  });
+  if (!task) return false;
+  return task.assignees.some((a) => a.user.reportingManagerId === user.id);
+}
+
+export async function updateTaskProgress(id: string, data: { status?: TaskStatus; percentComplete?: number; closureRating?: number }) {
   const existing = await prisma.task.findUnique({ where: { id }, include: { subTasks: { select: { status: true } } } });
   if (!existing) throw new AppError(404, "Task not found");
 
@@ -716,12 +732,16 @@ export interface UploadedFileInfo {
   mimeType: string;
 }
 
-export async function addTaskAttachment(taskId: string, file: UploadedFileInfo) {
+export async function addTaskAttachments(taskId: string, files: UploadedFileInfo[]) {
   const task = await prisma.task.findUnique({ where: { id: taskId } });
   if (!task) throw new AppError(404, "Task not found");
-  return prisma.taskAttachment.create({
-    data: { taskId, fileName: file.fileName, filePath: file.filePath, fileSize: file.fileSize, mimeType: file.mimeType },
-  });
+  return Promise.all(
+    files.map((file) =>
+      prisma.taskAttachment.create({
+        data: { taskId, fileName: file.fileName, filePath: file.filePath, fileSize: file.fileSize, mimeType: file.mimeType },
+      }),
+    ),
+  );
 }
 
 export async function deleteTaskAttachment(taskId: string, attachmentId: string) {

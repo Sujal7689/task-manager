@@ -54,6 +54,12 @@ export async function getLeaderboard(filters: LeaderboardFilters) {
     })),
   );
 
-  results.sort((a, b) => b.kpiScore - a.kpiScore);
-  return results.map((r, index) => ({ rank: index + 1, ...r }));
+  // Someone with zero completed tasks this period has nothing to measure —
+  // every sub-metric defaults to a "perfect" 100 in that case (see
+  // computeUserKpiBase), which would otherwise rank them above people who
+  // actually worked and got dinged for real imperfections. Leave them off
+  // the ranking entirely rather than crediting them with a score.
+  const ranked = results.filter((r) => r.totalClosed > 0);
+  ranked.sort((a, b) => b.kpiScore - a.kpiScore);
+  return ranked.map((r, index) => ({ rank: index + 1, ...r }));
 }

@@ -10,15 +10,15 @@ export default function AttachmentsPanel({ task, onChanged }: { task: Task; onCh
   const attachments = task.attachments ?? [];
 
   async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      files.forEach((file) => formData.append("file", file));
       await api.post(`/tasks/${task.id}/attachments`, formData, { headers: { "Content-Type": "multipart/form-data" } });
       onChanged();
-      showToast("Attachment uploaded.");
+      showToast(files.length > 1 ? `${files.length} attachments uploaded.` : "Attachment uploaded.");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -43,7 +43,7 @@ export default function AttachmentsPanel({ task, onChanged }: { task: Task; onCh
         >
           {uploading ? "Uploading..." : "+ Upload file"}
         </button>
-        <input ref={fileInputRef} type="file" onChange={handleUpload} className="hidden" />
+        <input ref={fileInputRef} type="file" multiple onChange={handleUpload} className="hidden" />
       </div>
       <ul className="divide-y divide-slate-100">
         {attachments.map((a) => (

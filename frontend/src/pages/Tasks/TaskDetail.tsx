@@ -40,6 +40,11 @@ export default function TaskDetail() {
   const canFullyEdit = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD" || user?.role === "STAFF";
   const canDelete = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD" || user?.role === "STAFF";
   const isAssignee = task?.assignees.some((a) => a.userId === user?.id);
+  const canRateClosure =
+    user?.role === "ADMIN" ||
+    user?.role === "MANAGER" ||
+    user?.role === "TEAM_LEAD" ||
+    task?.assignees.some((a) => a.user.reportingManagerId === user?.id);
   const openSubTasks = task?.subTasks?.filter((st) => st.status !== "COMPLETED" && st.status !== "CANCELLED") ?? [];
 
   function refresh() {
@@ -60,6 +65,19 @@ export default function TaskDetail() {
       refresh();
     } catch (err) {
       setProgressError(errorMessage(err, "Could not update status."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function rateTask(rating: number) {
+    setSaving(true);
+    setProgressError(null);
+    try {
+      await api.patch(`/tasks/${id}/progress`, { status: task!.status, percentComplete: task!.percentComplete, closureRating: rating });
+      refresh();
+    } catch (err) {
+      setProgressError(errorMessage(err, "Could not save the rating."));
     } finally {
       setSaving(false);
     }
@@ -153,6 +171,32 @@ export default function TaskDetail() {
               className="w-full h-8"
             />
           </label>
+        </div>
+      )}
+
+      {task.status === "COMPLETED" && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4 mb-6">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Closure Rating</p>
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                disabled={!canRateClosure || saving}
+                onClick={() => rateTask(n)}
+                className={`text-2xl leading-none ${canRateClosure ? "cursor-pointer" : "cursor-default"} ${
+                  (task.closureRating ?? 0) >= n ? "text-amber-400" : "text-slate-300"
+                }`}
+                aria-label={`Rate ${n} star${n > 1 ? "s" : ""}`}
+              >
+                ★
+              </button>
+            ))}
+            {!task.closureRating && <span className="text-sm text-slate-400 ml-2">Not rated yet</span>}
+          </div>
+          {!canRateClosure && (
+            <p className="text-xs text-slate-400 mt-1">Only an Admin, Manager, Team Lead, or this task's reporting manager can rate it.</p>
+          )}
         </div>
       )}
 
