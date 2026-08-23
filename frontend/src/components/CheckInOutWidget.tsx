@@ -18,7 +18,19 @@ export default function CheckInOutWidget({ onChange }: { onChange?: () => void }
   const [pendingAction, setPendingAction] = useState<"checkin" | "checkout" | null>(null);
 
   function refresh() {
-    api.get<TodayAttendance | null>("/attendance/today").then((res) => setToday(res.data));
+    api
+      .get<TodayAttendance | null>("/attendance/today")
+      .then((res) => {
+        setToday(res.data);
+        setError(null);
+      })
+      .catch(() => {
+        // Never leave the widget stuck on `undefined` (which renders nothing) —
+        // fall back to "not checked in" so the buttons still show, and surface
+        // the failure instead of silently hiding the whole widget.
+        setToday(null);
+        setError("Couldn't load today's attendance status. Try refreshing the page.");
+      });
   }
 
   useEffect(refresh, []);
