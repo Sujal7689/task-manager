@@ -68,6 +68,7 @@ export default function TimesheetReportSection() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
 
   const [summary, setSummary] = useState<SummaryRow[]>([]);
   const [detail, setDetail] = useState<DetailEntry[]>([]);
@@ -127,7 +128,7 @@ export default function TimesheetReportSection() {
   );
 
   return (
-    <div className="mt-8">
+    <div>
       <h2 className="text-lg font-semibold text-slate-900 mb-1">Timesheet Report</h2>
       <p className="text-sm text-slate-500 mb-4">
         How much time was spent — by employee, task, project, or department. Detailed and summary views, both filterable.
@@ -145,7 +146,7 @@ export default function TimesheetReportSection() {
         ))}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-3 lg:grid-cols-9 gap-3">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <label className="block">
           <span className="text-xs text-slate-500 block mb-1">From</span>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input" />
@@ -154,59 +155,69 @@ export default function TimesheetReportSection() {
           <span className="text-xs text-slate-500 block mb-1">To</span>
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input" />
         </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Employee</span>
-          <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="input">
-            <option value="">All</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Task</span>
-          <select value={taskId} onChange={(e) => setTaskId(e.target.value)} className="input">
-            <option value="">All</option>
-            {tasks.map((t) => <option key={t.id} value={t.id}>{t.taskNumber} — {t.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Project</span>
-          <select value={projectId} onChange={(e) => setProject(e.target.value)} className="input">
-            <option value="">All</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Milestone</span>
-          <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)} className="input">
-            <option value="">All</option>
-            {milestones.filter((m) => !projectId || m.projectId === projectId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Company</span>
-          <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="input">
-            <option value="">All</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Department</span>
-          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="input">
-            <option value="">All</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-xs text-slate-500 block mb-1">Entry type</span>
-          <select value={entryType} onChange={(e) => setEntryType(e.target.value)} className="input">
-            <option value="">All</option>
-            {entryTypes.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
-          </select>
-        </label>
+        <button
+          onClick={() => setShowMoreFilters((v) => !v)}
+          className="text-sm px-3 py-1.5 rounded-lg whitespace-nowrap bg-white border border-slate-200 text-slate-600 self-end"
+        >
+          More filters {activeCount > 0 && `(${activeCount})`}
+        </button>
+        {activeCount > 0 && (
+          <button onClick={clearFilters} className="text-sm text-slate-500 hover:underline self-end">Clear</button>
+        )}
       </div>
 
-      {activeCount > 0 && (
-        <button onClick={clearFilters} className="text-sm text-slate-500 hover:underline mb-3">Clear filters</button>
+      {showMoreFilters && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4 mb-4 grid sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Employee</span>
+            <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="input">
+              <option value="">All</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Task</span>
+            <select value={taskId} onChange={(e) => setTaskId(e.target.value)} className="input">
+              <option value="">All</option>
+              {tasks.map((t) => <option key={t.id} value={t.id}>{t.taskNumber} — {t.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Project</span>
+            <select value={projectId} onChange={(e) => setProject(e.target.value)} className="input">
+              <option value="">All</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Milestone</span>
+            <select value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)} className="input">
+              <option value="">All</option>
+              {milestones.filter((m) => !projectId || m.projectId === projectId).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Company</span>
+            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="input">
+              <option value="">All</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Department</span>
+            <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className="input">
+              <option value="">All</option>
+              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-500 block mb-1">Entry type</span>
+            <select value={entryType} onChange={(e) => setEntryType(e.target.value)} className="input">
+              <option value="">All</option>
+              {entryTypes.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
+            </select>
+          </label>
+        </div>
       )}
 
       <div className="flex items-center justify-between mb-2">

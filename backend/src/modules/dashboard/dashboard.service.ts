@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { getTaskScopeWhere, topLevelTaskFilter } from "../tasks/tasks.service";
-import { getDirectReportIds } from "../users/users.service";
+import { getVisibleMemberIds } from "../users/users.service";
 import { computeMemberSummary, computeTeamAverageVolume, getEffectiveWeights, MemberSummary } from "../kpi/kpi.service";
 import { getPeriodRange, LeaderboardPeriod } from "../leaderboard/leaderboard.service";
 
@@ -95,21 +95,7 @@ export async function getAdminSummary() {
 // Manager = their department, Team Lead = direct reports + self, Staff = self only.
 // (The full-org Leaderboard is the dedicated place for peer-visible rankings —
 // Section 12 decision #3 — this widget is a narrower "your team" view.)
-async function getVisibleMemberIds(user: AuthUser): Promise<string[]> {
-  if (user.role === "ADMIN") {
-    return (await prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true } })).map((u) => u.id);
-  }
-  if (user.role === "MANAGER") {
-    if (!user.departmentId) return [user.id];
-    return (await prisma.user.findMany({ where: { departmentId: user.departmentId, status: "ACTIVE" }, select: { id: true } })).map(
-      (u) => u.id,
-    );
-  }
-  if (user.role === "TEAM_LEAD") {
-    return [...(await getDirectReportIds(user.id)), user.id];
-  }
-  return [user.id];
-}
+// Logic lives in users.service.ts's getVisibleMemberIds, shared with the KPI Report.
 
 export async function getMemberKpi(user: AuthUser, period: LeaderboardPeriod = "MONTHLY"): Promise<MemberSummary[]> {
   const { from, to } = getPeriodRange(period);

@@ -1,5 +1,7 @@
+import { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
-import { topLevelTaskFilter } from "../tasks/tasks.service";
+import { getTaskScopeWhere, topLevelTaskFilter } from "../tasks/tasks.service";
+import { getVisibleMemberIds } from "../users/users.service";
 
 export interface KpiWeights {
   onTime: number;
@@ -265,4 +267,186 @@ export async function computeMemberSummary(
     feedbackQuality: kpi.qualityScore,
     workloadTrend,
   };
+}
+
+// ==================== KPI Report ====================
+// One row per employee for an arbitrary custom date range (daily/weekly/
+// monthly/quarterly presets are just pre-computed from/to values on the
+// frontend — this function only ever sees a plain range). Deliberately
+// leaves Attendance out (per explicit decision) so it can reuse Task
+// Report-style broader visibility instead of Attendance's narrower rule.
+interface KpiReportAuthUser {
+  id: string;
+  role: Role;
+  departmentId: string | null;
+  companyId: string | null;
+}
+
+export interface KpiReportFilters {
+  from: Date;
+  to: Date;
+  companyId?: string;
+  departmentId?: string;
+  projectId?: string;
+  milestoneId?: string;
+  employeeId?: string;
+}
+
+export interface KpiReportRow {
+  userId: string;
+  name: string;
+  department: string | null;
+  assigned: number;
+  completed: number;
+  overdue: number;
+  pending: number;
+  hoursLogged: number;
+  onTimePct: number;
+  qualityScore: number;
+  kpiScore: number;
+}
+
+export async function getKpiReport(user: KpiReportAuthUser, filters: KpiReportFilters): Promise<KpiReportRow[]> {
+  const scope = await getTaskScopeWhere(user);
+  const taskWhere: Prisma.TaskWhereInput = {
+    AND: [
+      scope,
+      topLevelTaskFilter,
+      filters.companyId ? { OR: [{ companyId: filters.companyId }, { project: { companyId: filters.companyId } }] } : {},
+      filters.departmentId
+        ? { OR: [{ departmentId: filters.departmentId }, { project: { departmentId: filters.departmentId } }] }
+        : {},
+      filters.projectId ? { projectId: filters.projectId } : {},
+      filters.milestoneId ? { milestoneId: filters.milestoneId } : {},
+      filters.employeeId ? { assignees: { some: { userId: filters.employeeId } } } : {},
+    ],
+  };
+
+  const tasks = await prisma.task.findMany({
+    where: taskWhere,
+    select: {
+      id: true,
+      status: true,
+      dueDate: true,
+      closedAt: true,
+      closureRating: true,
+      assignees: { select: { userId: true } },
+    },
+  });
+
+  const memberIds = await getVisibleMemberIds(user);
+  const employees = await prisma.user.findMany({
+    where: {
+      status: "ACTIVE",
+      id: { in: memberIds },
+      ...(filters.companyId ? { companyId: filters.companyId } : {}),
+      ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
+      ...(filters.employeeId ? { id: filters.employeeId } : {}),
+    },
+    select: { id: true, name: true, department: { select: { name: true } } },
+    orderBy: { name: "asc" },
+  });
+  if (employees.length === 0) return [];
+  const employeeIdSet = new Set(employees.map((e) => e.id));
+
+  const periodEndStartOfDay = new Date(filters.to);
+  periodEndStartOfDay.setHours(0, 0, 0, 0);
+
+  interface Bucket {
+    assigned: number;
+    overdue: number;
+    pending: number;
+    completed: number;
+    onTimeCount: number;
+    onTimeDenom: number;
+    qualitySum: number;
+    qualityCount: number;
+  }
+  const buckets = new Map<string, Bucket>();
+  function bucketFor(userId: string): Bucket {
+    let b = buckets.get(userId);
+    if (!b) {
+      b = { assigned: 0, overdue: 0, pending: 0, completed: 0, onTimeCount: 0, onTimeDenom: 0, qualitySum: 0, qualityCount: 0 };
+      buckets.set(userId, b);
+    }
+    return b;
+  }
+
+  for (const task of tasks) {
+    // Reconstructed historical state as of the period's end date, not the
+    // task's current status — a task finished after the period end still
+    // counted as open workload for that period.
+    const completedByPeriodEnd = task.status === "COMPLETED" && !!task.closedAt && task.closedAt <= filters.to;
+    const stillOpenAtPeriodEnd = task.status !== "CANCELLED" && !completedByPeriodEnd;
+    const completedInPeriod =
+      task.status === "COMPLETED" && !!task.closedAt && task.closedAt >= filters.from && task.closedAt <= filters.to;
+
+    for (const a of task.assignees) {
+      if (!employeeIdSet.has(a.userId)) continue;
+      const b = bucketFor(a.userId);
+
+      if (stillOpenAtPeriodEnd) {
+        b.assigned++;
+        if (task.dueDate && task.dueDate < periodEndStartOfDay) b.overdue++;
+        else b.pending++;
+      }
+
+      if (completedInPeriod) {
+        b.completed++;
+        b.onTimeDenom++;
+        const dueDateEnd = task.dueDate ? new Date(task.dueDate) : null;
+        dueDateEnd?.setHours(23, 59, 59, 999);
+        if (!dueDateEnd || task.closedAt! <= dueDateEnd) b.onTimeCount++;
+        if (task.closureRating != null) {
+          b.qualitySum += task.closureRating;
+          b.qualityCount++;
+        }
+      }
+    }
+  }
+
+  // Hours are restricted to the same task set already scoped by RBAC + the
+  // active filters above, plus any non-task timesheet entries (admin,
+  // meetings, leave, break) which always count — so filtering to one
+  // project narrows task hours to that project without hiding general time.
+  const filteredTaskIds = tasks.map((t) => t.id);
+  const hoursRows = await prisma.timesheetEntry.groupBy({
+    by: ["userId"],
+    where: {
+      userId: { in: Array.from(employeeIdSet) },
+      date: { gte: filters.from, lte: filters.to },
+      OR: [{ taskId: null }, { taskId: { in: filteredTaskIds } }],
+    },
+    _sum: { hoursLogged: true },
+  });
+  const hoursByUser = new Map(hoursRows.map((h) => [h.userId, Number(h._sum.hoursLogged ?? 0)]));
+
+  const teamAvgVolume =
+    employees.reduce((sum, e) => sum + (buckets.get(e.id)?.completed ?? 0), 0) / employees.length;
+  const weights = await getEffectiveWeights(user.companyId);
+
+  return employees
+    .map((e) => {
+      const b = buckets.get(e.id);
+      const completed = b?.completed ?? 0;
+      const onTimePct = !b || b.onTimeDenom === 0 ? 100 : (b.onTimeCount / b.onTimeDenom) * 100;
+      const qualityScore = !b || b.qualityCount === 0 ? 100 : (b.qualitySum / b.qualityCount / 5) * 100;
+      const volumeScore = teamAvgVolume > 0 ? Math.min(150, (completed / teamAvgVolume) * 100) : completed > 0 ? 100 : 0;
+      const kpiScore = (onTimePct * weights.onTime + volumeScore * weights.volume + qualityScore * weights.quality) / 100;
+
+      return {
+        userId: e.id,
+        name: e.name,
+        department: e.department?.name ?? null,
+        assigned: b?.assigned ?? 0,
+        completed,
+        overdue: b?.overdue ?? 0,
+        pending: b?.pending ?? 0,
+        hoursLogged: Math.round((hoursByUser.get(e.id) ?? 0) * 10) / 10,
+        onTimePct: Math.round(onTimePct * 10) / 10,
+        qualityScore: Math.round(qualityScore * 10) / 10,
+        kpiScore: Math.round(kpiScore * 100) / 100,
+      };
+    })
+    .sort((a, b) => b.kpiScore - a.kpiScore);
 }

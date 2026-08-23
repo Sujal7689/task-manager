@@ -3,6 +3,7 @@ import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import CheckInOutWidget from "../../components/CheckInOutWidget";
+import AttendanceReportView from "../../components/AttendanceReportView";
 
 type LeaveType = "SICK" | "CASUAL";
 
@@ -54,7 +55,7 @@ export default function Attendance() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const isAdmin = user?.role === "ADMIN";
-  const [view, setView] = useState<"mine" | "team">("mine");
+  const [view, setView] = useState<"mine" | "team" | "report">("mine");
   const [from, setFrom] = useState(daysAgoStr(13));
   const [to, setTo] = useState(daysFromNowStr(2));
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -72,6 +73,7 @@ export default function Attendance() {
   const [editLeaveForm, setEditLeaveForm] = useState(emptyLeaveForm);
 
   function refresh() {
+    if (view === "report") return;
     const attEndpoint = view === "team" ? "/attendance/team" : "/attendance/mine";
     const leaveEndpoint = view === "team" ? "/attendance/leaves/team" : "/attendance/leaves/mine";
     api.get<AttendanceRecord[]>(attEndpoint, { params: { from, to } }).then((res) => setRecords(res.data));
@@ -168,6 +170,9 @@ export default function Attendance() {
           <button onClick={() => setView("team")} className={`text-sm px-3 py-1.5 ${view === "team" ? "bg-slate-900 text-white" : "text-slate-600"}`}>
             Team
           </button>
+          <button onClick={() => setView("report")} className={`text-sm px-3 py-1.5 ${view === "report" ? "bg-slate-900 text-white" : "text-slate-600"}`}>
+            Report
+          </button>
         </div>
       </div>
 
@@ -177,6 +182,10 @@ export default function Attendance() {
         </div>
       )}
 
+      {view === "report" && <AttendanceReportView />}
+
+      {view !== "report" && (
+        <>
       <div className="flex items-center gap-2 mb-4">
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input" />
         <span className="text-slate-400 text-sm">to</span>
@@ -393,6 +402,8 @@ export default function Attendance() {
           {leaves.length === 0 && <li className="py-2 text-sm text-slate-400">No leave logged for this range.</li>}
         </ul>
       </div>
+        </>
+      )}
     </div>
   );
 }

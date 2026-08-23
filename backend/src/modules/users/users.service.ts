@@ -116,3 +116,31 @@ export async function getDirectReportIds(managerId: string): Promise<string[]> {
   const reports = await prisma.user.findMany({ where: { reportingManagerId: managerId }, select: { id: true } });
   return reports.map((r) => r.id);
 }
+
+interface ScopedUser {
+  id: string;
+  role: Role;
+  departmentId: string | null;
+}
+
+// Shared roster-visibility rule for team-wide performance views (Dashboard's
+// Member-wise KPI widget, the KPI Report): Admin = everyone, Manager = their
+// department, Team Lead = direct reports + self, Staff = self only. Same
+// scope as Task Report visibility — deliberately broader than Attendance's
+// narrower "direct reporting manager only" rule, since this only touches
+// task/timesheet data, not attendance.
+export async function getVisibleMemberIds(user: ScopedUser): Promise<string[]> {
+  if (user.role === Role.ADMIN) {
+    return (await prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true } })).map((u) => u.id);
+  }
+  if (user.role === Role.MANAGER) {
+    if (!user.departmentId) return [user.id];
+    return (
+      await prisma.user.findMany({ where: { departmentId: user.departmentId, status: "ACTIVE" }, select: { id: true } })
+    ).map((u) => u.id);
+  }
+  if (user.role === Role.TEAM_LEAD) {
+    return [...(await getDirectReportIds(user.id)), user.id];
+  }
+  return [user.id];
+}

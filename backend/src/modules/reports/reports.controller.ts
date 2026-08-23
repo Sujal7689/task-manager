@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { Priority, TaskStatus, TimesheetEntryType } from "@prisma/client";
 import * as service from "./reports.service";
+import * as kpiService from "../kpi/kpi.service";
 import { toCsv } from "../../utils/csv";
 import { parsePagination, toPaginated } from "../../utils/pagination";
 
@@ -50,6 +51,17 @@ const timesheetFiltersSchema = z.object({
 
 const timesheetSummaryFiltersSchema = timesheetFiltersSchema.extend({
   groupBy: z.enum(["employee", "task", "project", "department"]),
+});
+
+const kpiReportFiltersSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  companyId: z.string().optional(),
+  departmentId: z.string().optional(),
+  projectId: z.string().optional(),
+  milestoneId: z.string().optional(),
+  employeeId: z.string().optional(),
+  format: z.enum(["json", "csv"]).default("json"),
 });
 
 function respond(res: Response, rows: Record<string, unknown>[], format: "json" | "csv", filename: string) {
@@ -132,6 +144,16 @@ export async function leaderboardExportHandler(req: Request, res: Response) {
   const format = (req.query.format as "json" | "csv") ?? "json";
   const rows = await service.leaderboardExport(period);
   respond(res, rows, format, "leaderboard-export");
+}
+
+export async function kpiReportHandler(req: Request, res: Response) {
+  const filters = kpiReportFiltersSchema.parse(req.query);
+  const rows = await kpiService.getKpiReport(req.user!, {
+    ...filters,
+    from: new Date(filters.from),
+    to: new Date(filters.to),
+  });
+  respond(res, rows as unknown as Record<string, unknown>[], filters.format, "kpi-report");
 }
 
 export async function timesheetSummaryHandler(req: Request, res: Response) {

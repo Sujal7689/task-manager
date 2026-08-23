@@ -11,6 +11,7 @@ router.use(requireAuth);
 const managerUp = requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD);
 
 router.get("/grouped", managerUp, asyncHandler(controller.groupedHandler));
+router.get("/kpi-report", managerUp, asyncHandler(controller.kpiReportHandler));
 router.get("/task-detail", managerUp, asyncHandler(controller.taskDetailHandler));
 router.get("/task-summary", managerUp, asyncHandler(controller.taskSummaryHandler));
 router.get("/staff-performance", asyncHandler(controller.staffPerformanceHandler));
