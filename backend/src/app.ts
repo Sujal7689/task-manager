@@ -24,6 +24,7 @@ import errorLogRoutes from "./modules/errorLog/errorLog.routes";
 import escalationRuleRoutes from "./modules/escalationRules/escalationRules.routes";
 import leadershipRoutes from "./modules/leadership/leadership.routes";
 import configRoutes from "./modules/config/config.routes";
+import attendanceRoutes from "./modules/attendance/attendance.routes";
 
 export const app = express();
 
@@ -54,5 +55,6 @@ app.use("/api/admin/error-log", errorLogRoutes);
 app.use("/api/admin/escalation-rules", escalationRuleRoutes);
 app.use("/api/leadership", leadershipRoutes);
 app.use("/api/admin/config", configRoutes);
+app.use("/api/attendance", attendanceRoutes);
 
 app.use(errorHandler);

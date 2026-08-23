@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import CheckInOutWidget from "../../components/CheckInOutWidget";
 import MemberKpiWidget from "./MemberKpiWidget";
 import ProjectProgressWidget from "./ProjectProgressWidget";
 import MilestoneTrackingWidget from "./MilestoneTrackingWidget";
@@ -49,6 +50,10 @@ export default function Dashboard() {
     <div>
       <h1 className="text-2xl font-semibold text-slate-900 mb-1">Welcome, {user?.name}</h1>
       <p className="text-slate-500 mb-6 text-sm">Role: {user?.role}</p>
+
+      <div className="mb-8">
+        <CheckInOutWidget />
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
         <StatCard label="Total tasks" value={summary.staff.totalTasks} to="/tasks" />

@@ -107,6 +107,8 @@ model User {
   notifications         NotificationLog[]
   auditLogs             AuditLog[]     @relation("AuditChangedBy")
   passwordResetTokens   PasswordResetToken[]
+  attendanceRecords     Attendance[]
+  leaves                Leave[]
 
   @@map("users")
 }
@@ -458,6 +460,44 @@ model TimesheetEntry {
   @@unique([userId, date, taskId, entryType])
   @@index([userId, date])
   @@map("timesheet_entries")
+}
+
+// ==================== Attendance & Leave ====================
+// Independent of Timesheet — plain clock-in/out plus self-declared leave,
+// no approval workflow and no balance/quota tracking.
+
+model Attendance {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date       DateTime  @db.Date
+  checkInAt  DateTime  @map("check_in_at")
+  checkOutAt DateTime? @map("check_out_at")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, date])
+  @@map("attendance_records")
+}
+
+enum LeaveType {
+  SICK
+  CASUAL
+}
+
+model Leave {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  leaveType LeaveType @map("leave_type")
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime  @map("end_date") @db.Date
+  reason    String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("leaves")
 }
 
 // ==================== Phase 3: Notifications + Escalation + Comments ====================
