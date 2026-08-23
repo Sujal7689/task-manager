@@ -2,8 +2,10 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { LeaveType } from "@prisma/client";
 import * as service from "./attendance.service";
+import { toCsv } from "../../utils/csv";
 
 const rangeSchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
+const reportSchema = rangeSchema.extend({ format: z.enum(["json", "csv"]).default("json") });
 
 export async function checkInHandler(req: Request, res: Response) {
   res.status(201).json(await service.checkIn(req.user!.id));
@@ -35,6 +37,17 @@ export async function myAttendanceHandler(req: Request, res: Response) {
 export async function teamAttendanceHandler(req: Request, res: Response) {
   const { from, to } = rangeSchema.parse(req.query);
   res.json(await service.getTeamAttendance(req.user!, from, to));
+}
+
+export async function monthlyReportHandler(req: Request, res: Response) {
+  const { from, to, format } = reportSchema.parse(req.query);
+  const rows = await service.getMonthlyAttendanceReport(req.user!, from, to);
+  if (format === "csv") {
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", 'attachment; filename="attendance-report.csv"');
+    return res.send(toCsv(rows as unknown as Record<string, unknown>[]));
+  }
+  res.json(rows);
 }
 
 const createLeaveSchema = z.object({

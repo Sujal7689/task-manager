@@ -111,6 +111,93 @@ export async function getTeamAttendance(user: AuthUser, from: string, to: string
   });
 }
 
+export interface MonthlyAttendanceRow {
+  userId: string;
+  name: string;
+  presentDays: number;
+  sickDays: number;
+  casualDays: number;
+  leaveDays: number;
+  absentDays: number;
+  totalHours: number;
+  missingCheckouts: number;
+}
+
+// Month-wise summary for Admin (everyone) / a reporting manager (their direct
+// reports + self) — same visibility rule as the rest of Attendance & Leave.
+// "Absent" is a derived count, not a stored value: any Mon-Fri within the
+// range (and not after today, and not before the employee joined) that has
+// neither an Attendance row nor falls inside a logged Leave. Weekends are
+// excluded since there's no company holiday/working-day calendar to draw on.
+export async function getMonthlyAttendanceReport(user: AuthUser, from: string, to: string): Promise<MonthlyAttendanceRow[]> {
+  const userIds = await getVisibleAttendanceUserIds(user);
+  const fromDate = toDateOnly(from);
+  const toDate = toDateOnly(to);
+
+  const employees = await prisma.user.findMany({
+    where: { ...(userIds ? { id: { in: userIds } } : {}), status: "ACTIVE" },
+    select: { id: true, name: true, dateJoined: true },
+    orderBy: { name: "asc" },
+  });
+  if (employees.length === 0) return [];
+  const employeeIds = employees.map((e) => e.id);
+
+  const [attendance, leaves] = await Promise.all([
+    prisma.attendance.findMany({ where: { userId: { in: employeeIds }, date: { gte: fromDate, lte: toDate } } }),
+    prisma.leave.findMany({ where: { userId: { in: employeeIds }, startDate: { lte: toDate }, endDate: { gte: fromDate } } }),
+  ]);
+
+  const today = todayDateOnly();
+  const rangeEnd = toDate < today ? toDate : today;
+
+  return employees.map((emp) => {
+    const empAttendance = attendance.filter((a) => a.userId === emp.id);
+    const attendanceDateKeys = new Set(empAttendance.map((a) => a.date.toISOString().slice(0, 10)));
+    const missingCheckouts = empAttendance.filter((a) => !a.checkOutAt).length;
+    const totalHours = empAttendance.reduce(
+      (sum, a) => (a.checkOutAt ? sum + (a.checkOutAt.getTime() - a.checkInAt.getTime()) / 3600000 : sum),
+      0,
+    );
+
+    const leaveDayKeys = new Set<string>();
+    let sickDays = 0;
+    let casualDays = 0;
+    for (const l of leaves.filter((l) => l.userId === emp.id)) {
+      const start = l.startDate < fromDate ? fromDate : l.startDate;
+      const end = l.endDate > toDate ? toDate : l.endDate;
+      for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+        const key = d.toISOString().slice(0, 10);
+        if (leaveDayKeys.has(key)) continue;
+        leaveDayKeys.add(key);
+        if (l.leaveType === LeaveType.SICK) sickDays++;
+        else casualDays++;
+      }
+    }
+
+    const joinedDate = toDateOnly(emp.dateJoined);
+    const rangeStart = fromDate < joinedDate ? joinedDate : fromDate;
+    let absentDays = 0;
+    for (const d = new Date(rangeStart); d <= rangeEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+      const weekday = d.getUTCDay();
+      if (weekday === 0 || weekday === 6) continue; // Sat/Sun
+      const key = d.toISOString().slice(0, 10);
+      if (!attendanceDateKeys.has(key) && !leaveDayKeys.has(key)) absentDays++;
+    }
+
+    return {
+      userId: emp.id,
+      name: emp.name,
+      presentDays: empAttendance.length,
+      sickDays,
+      casualDays,
+      leaveDays: sickDays + casualDays,
+      absentDays,
+      totalHours: Math.round(totalHours * 10) / 10,
+      missingCheckouts,
+    };
+  });
+}
+
 // ==================== Leave ====================
 
 // Self-service create window: today through today+2 (inclusive) — only the

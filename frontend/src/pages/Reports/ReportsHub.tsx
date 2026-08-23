@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import { Company, Department, Project, TaskStatus, User } from "../../types";
 import TaskDetailReportSection from "./TaskDetailReportSection";
 import TimesheetReportSection from "./TimesheetReportSection";
+import AttendanceReportSection from "./AttendanceReportSection";
 
 type GroupBy = "employee" | "team" | "project" | "company" | "department";
 
@@ -222,6 +223,8 @@ export default function ReportsHub() {
       <TaskDetailReportSection />
 
       <TimesheetReportSection />
+
+      <AttendanceReportSection />
 
       <OtherReports />
     </div>
