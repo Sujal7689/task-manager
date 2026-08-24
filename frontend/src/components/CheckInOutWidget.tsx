@@ -35,13 +35,27 @@ export default function CheckInOutWidget({ onChange }: { onChange?: () => void }
 
   useEffect(refresh, []);
 
+  // Best-effort: a denied permission, unsupported browser, or timeout never
+  // blocks the check-in/out itself — it just means no location gets attached.
+  function getLocation(): Promise<{ lat: number; lng: number } | undefined> {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(undefined);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(undefined),
+        { timeout: 8000 },
+      );
+    });
+  }
+
   async function confirmAction() {
     const action = pendingAction;
     setPendingAction(null);
     setBusy(true);
     setError(null);
     try {
-      await api.post(action === "checkin" ? "/attendance/check-in" : "/attendance/check-out");
+      const location = await getLocation();
+      await api.post(action === "checkin" ? "/attendance/check-in" : "/attendance/check-out", { location });
       refresh();
       onChange?.();
     } catch {

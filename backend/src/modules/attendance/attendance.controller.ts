@@ -7,12 +7,17 @@ import { toCsv } from "../../utils/csv";
 const rangeSchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
 const reportSchema = rangeSchema.extend({ format: z.enum(["json", "csv"]).default("json") });
 
+const gpsLocationSchema = z.object({ lat: z.number(), lng: z.number() }).optional();
+const checkActionSchema = z.object({ location: gpsLocationSchema });
+
 export async function checkInHandler(req: Request, res: Response) {
-  res.status(201).json(await service.checkIn(req.user!.id));
+  const { location } = checkActionSchema.parse(req.body ?? {});
+  res.status(201).json(await service.checkIn(req.user!.id, location));
 }
 
 export async function checkOutHandler(req: Request, res: Response) {
-  res.json(await service.checkOut(req.user!.id));
+  const { location } = checkActionSchema.parse(req.body ?? {});
+  res.json(await service.checkOut(req.user!.id, location));
 }
 
 export async function todayHandler(req: Request, res: Response) {

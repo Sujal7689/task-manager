@@ -473,6 +473,13 @@ model Attendance {
   date       DateTime  @db.Date
   checkInAt  DateTime  @map("check_in_at")
   checkOutAt DateTime? @map("check_out_at")
+  // Captured client-side via the browser Geolocation API at the moment of
+  // check-in/out — best-effort, not required (a denied/unavailable location
+  // never blocks the check-in/out itself, so these stay nullable).
+  checkInLat  Float?   @map("check_in_lat")
+  checkInLng  Float?   @map("check_in_lng")
+  checkOutLat Float?   @map("check_out_lat")
+  checkOutLng Float?   @map("check_out_lng")
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

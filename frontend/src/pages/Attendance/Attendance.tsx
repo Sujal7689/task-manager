@@ -13,6 +13,14 @@ interface AttendanceRecord {
   date: string;
   checkInAt: string;
   checkOutAt: string | null;
+  checkInLat: number | null;
+  checkInLng: number | null;
+  checkOutLat: number | null;
+  checkOutLng: number | null;
+}
+
+function mapUrl(lat: number, lng: number) {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
 }
 
 interface LeaveRecord {
@@ -228,9 +236,37 @@ export default function Attendance() {
                   </>
                 ) : (
                   <>
-                    <td className="px-4 py-2 text-slate-600">{formatTime(r.checkInAt)}</td>
                     <td className="px-4 py-2 text-slate-600">
-                      {r.checkOutAt ? formatTime(r.checkOutAt) : <span className="text-amber-600">Missing checkout</span>}
+                      {formatTime(r.checkInAt)}
+                      {r.checkInLat != null && r.checkInLng != null && (
+                        <a
+                          href={mapUrl(r.checkInLat, r.checkInLng)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="ml-1.5 text-xs text-slate-400 hover:text-slate-600 hover:underline"
+                        >
+                          (map)
+                        </a>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-slate-600">
+                      {r.checkOutAt ? (
+                        <>
+                          {formatTime(r.checkOutAt)}
+                          {r.checkOutLat != null && r.checkOutLng != null && (
+                            <a
+                              href={mapUrl(r.checkOutLat, r.checkOutLng)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="ml-1.5 text-xs text-slate-400 hover:text-slate-600 hover:underline"
+                            >
+                              (map)
+                            </a>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-amber-600">Missing checkout</span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-slate-600">{hoursWorked(r)}</td>
                     <td className="px-4 py-2">
