@@ -123,21 +123,30 @@ interface ScopedUser {
   departmentId: string | null;
 }
 
+// Every Staff and Team Lead in the company, regardless of department — a
+// Manager's reports scope (see getVisibleMemberIds below), not department-
+// bound. Deliberately excludes other Managers/Admins: a Manager sees every
+// subordinate's work, not peer Managers' own.
+export async function getStaffAndTeamLeadIds(): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: { role: { in: [Role.STAFF, Role.TEAM_LEAD] } },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+}
+
 // Shared roster-visibility rule for team-wide performance views (Dashboard's
-// Member-wise KPI widget, the KPI Report): Admin = everyone, Manager = their
-// department, Team Lead = direct reports + self, Staff = self only. Same
-// scope as Task Report visibility — deliberately broader than Attendance's
-// narrower "direct reporting manager only" rule, since this only touches
-// task/timesheet data, not attendance.
+// Member-wise KPI widget, the KPI Report): Admin = everyone, Manager = every
+// Staff/Team Lead org-wide + self (not other Managers), Team Lead = direct
+// reports + self, Staff = self only. Same scope as Task Report visibility —
+// deliberately broader than Attendance's narrower "direct reporting manager
+// only" rule, since this only touches task/timesheet data, not attendance.
 export async function getVisibleMemberIds(user: ScopedUser): Promise<string[]> {
   if (user.role === Role.ADMIN) {
     return (await prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true } })).map((u) => u.id);
   }
   if (user.role === Role.MANAGER) {
-    if (!user.departmentId) return [user.id];
-    return (
-      await prisma.user.findMany({ where: { departmentId: user.departmentId, status: "ACTIVE" }, select: { id: true } })
-    ).map((u) => u.id);
+    return [...(await getStaffAndTeamLeadIds()), user.id];
   }
   if (user.role === Role.TEAM_LEAD) {
     return [...(await getDirectReportIds(user.id)), user.id];

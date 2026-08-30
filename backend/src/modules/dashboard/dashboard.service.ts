@@ -1,7 +1,7 @@
 import { Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { getTaskScopeWhere, topLevelTaskFilter } from "../tasks/tasks.service";
-import { getVisibleMemberIds } from "../users/users.service";
+import { getStaffAndTeamLeadIds, getVisibleMemberIds } from "../users/users.service";
 import { computeMemberSummary, computeTeamAverageVolume, getEffectiveWeights, MemberSummary } from "../kpi/kpi.service";
 import { getPeriodRange, LeaderboardPeriod } from "../leaderboard/leaderboard.service";
 
@@ -50,10 +50,23 @@ export async function getStaffSummary(user: AuthUser) {
 }
 
 export async function getManagerSummary(user: AuthUser) {
-  if (!user.departmentId) return { heatmap: [], overdueCount: 0 };
-
+  // Org-wide across every Staff/Team Lead plus the Manager's own tasks, not
+  // department-scoped — matches tasks.service.ts's getTaskScopeWhere.
+  const subordinateIds = await getStaffAndTeamLeadIds();
   const tasks = await prisma.task.findMany({
-    where: { AND: [topLevelTaskFilter, { OR: [{ departmentId: user.departmentId }, { project: { departmentId: user.departmentId } }] }] },
+    where: {
+      AND: [
+        topLevelTaskFilter,
+        {
+          OR: [
+            { assignedById: user.id },
+            { assignees: { some: { userId: user.id } } },
+            { assignedById: { in: subordinateIds } },
+            { assignees: { some: { userId: { in: subordinateIds } } } },
+          ],
+        },
+      ],
+    },
     select: { status: true, dueDate: true },
   });
 
@@ -116,9 +129,8 @@ export async function getMemberKpi(user: AuthUser, period: LeaderboardPeriod = "
 
 async function getVisibleProjects(user: AuthUser) {
   if (user.role === "ADMIN") return prisma.project.findMany();
-  if (user.role === "MANAGER" && user.departmentId) {
-    return prisma.project.findMany({ where: { departmentId: user.departmentId } });
-  }
+  // Manager falls through to the generic scope-derived path below, which
+  // already reflects the org-wide Staff/Team Lead visibility rule.
   const scope = await getTaskScopeWhere(user);
   const projectIds = await prisma.task.findMany({ where: scope, select: { projectId: true }, distinct: ["projectId"] });
   const ids = projectIds.map((p) => p.projectId).filter((id): id is string => Boolean(id));

@@ -1,7 +1,7 @@
 import { Prisma, Priority, RecurringFrequency, TaskStatus, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
-import { getDirectReportIds } from "../users/users.service";
+import { getDirectReportIds, getStaffAndTeamLeadIds } from "../users/users.service";
 import { notify } from "../notifications/notifications.service";
 
 // Sub-tasks are tracked under their parent (Sub-tasks tab) rather than as
@@ -44,14 +44,21 @@ export async function getTaskScopeWhere(user: AuthUser): Promise<Prisma.TaskWher
   switch (user.role) {
     case Role.ADMIN:
       return {};
-    case Role.MANAGER:
-      // Task.departmentId is optional and rarely set directly (the Task form
-      // doesn't expose it) — most tasks only carry a department via their
-      // Project, which always has one. Match on either so Managers actually
-      // see their department's tasks instead of only the rare directly-tagged ones.
-      return user.departmentId
-        ? { OR: [{ departmentId: user.departmentId }, { project: { departmentId: user.departmentId } }] }
-        : {};
+    case Role.MANAGER: {
+      // A Manager sees every Staff and Team Lead's work org-wide — not
+      // scoped to their own department, and not including peer Managers'
+      // own tasks (Section 12 decision: Manager oversees subordinate roles,
+      // not other Managers).
+      const subordinateIds = await getStaffAndTeamLeadIds();
+      return {
+        OR: [
+          { assignedById: user.id },
+          { assignees: { some: { userId: user.id } } },
+          { assignedById: { in: subordinateIds } },
+          { assignees: { some: { userId: { in: subordinateIds } } } },
+        ],
+      };
+    }
     case Role.TEAM_LEAD: {
       const directReportIds = await getDirectReportIds(user.id);
       return {

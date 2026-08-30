@@ -1,7 +1,7 @@
 import { LeaveType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
-import { getDirectReportIds } from "../users/users.service";
+import { getDirectReportIds, getStaffAndTeamLeadIds } from "../users/users.service";
 
 interface AuthUser {
   id: string;
@@ -29,12 +29,16 @@ function isWithinSelfEditWindow(date: Date): boolean {
   return date.getTime() === today.getTime() || date.getTime() === yesterday.getTime();
 }
 
-// Visibility/edit authority for Attendance & Leave is deliberately narrower
-// than closure ratings: only Admin (everyone) or a user's own direct
-// reporting manager (one level, not the whole chain) — no blanket
-// Manager/Team Lead exception.
+// View visibility for Attendance & Leave: Admin sees everyone, Manager sees
+// every Staff/Team Lead org-wide + self (same rule as Tasks/Reports/
+// Timesheet — not other Managers' own records), everyone else sees their
+// direct reports + self. Edit authority is intentionally narrower and
+// unaffected by this — see assertCanManageRecord/assertCanEditLeave/
+// assertCanCancelLeave below, which still require being the exact direct
+// reporting manager (or Admin) regardless of this broader view scope.
 export async function getVisibleAttendanceUserIds(user: AuthUser): Promise<string[] | undefined> {
   if (user.role === Role.ADMIN) return undefined;
+  if (user.role === Role.MANAGER) return [...(await getStaffAndTeamLeadIds()), user.id];
   return [...(await getDirectReportIds(user.id)), user.id];
 }
 

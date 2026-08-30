@@ -1,7 +1,7 @@
 import { Prisma, TimesheetEntryType } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
-import { getDirectReportIds } from "../users/users.service";
+import { getDirectReportIds, getStaffAndTeamLeadIds } from "../users/users.service";
 
 interface AuthUser {
   id: string;
@@ -57,14 +57,12 @@ export async function createManualEntry(userId: string, input: ManualEntryInput)
 }
 
 // Reusable role-scoping for anything that reports on a "team's" timesheet data
-// (Manager = department, Team Lead = direct reports, Admin = everyone).
-// Returns undefined for Admin (meaning "no restriction").
+// (Manager = every Staff/Team Lead org-wide, Team Lead = direct reports,
+// Admin = everyone). Returns undefined for Admin (meaning "no restriction").
 export async function getVisibleTimesheetUserIds(user: AuthUser): Promise<string[] | undefined> {
   if (user.role === "ADMIN") return undefined;
   if (user.role === "MANAGER") {
-    if (!user.departmentId) throw new AppError(400, "Manager has no department assigned");
-    const users = await prisma.user.findMany({ where: { departmentId: user.departmentId }, select: { id: true } });
-    return users.map((u) => u.id);
+    return [...(await getStaffAndTeamLeadIds()), user.id];
   }
   if (user.role === "TEAM_LEAD") {
     return [...(await getDirectReportIds(user.id)), user.id];
