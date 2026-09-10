@@ -18,6 +18,7 @@ import TeamTimesheet from "./pages/Timesheets/TeamTimesheet";
 import NotificationsCenter from "./pages/Notifications/NotificationsCenter";
 import Leaderboard from "./pages/Leaderboard/Leaderboard";
 import ReportsHub from "./pages/Reports/ReportsHub";
+import CrmReportsHub from "./pages/CrmReports/CrmReportsHub";
 import StaffPerformanceDetail from "./pages/Performance/StaffPerformanceDetail";
 import AdminPanel from "./pages/Admin/AdminPanel";
 import TeamMemberDashboard from "./pages/Dashboard/TeamMemberDashboard";
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/notifications" element={<NotificationsCenter />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/reports" element={<ReportsHub />} />
+          <Route path="/crm-reports" element={<CrmReportsHub />} />
           <Route path="/performance" element={<StaffPerformanceDetail />} />
           <Route path="/performance/:userId" element={<StaffPerformanceDetail />} />
           <Route path="/admin" element={<AdminPanel />} />

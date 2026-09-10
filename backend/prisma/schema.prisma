@@ -519,6 +519,7 @@ enum NotificationType {
   TASK_ASSIGNED
   MENTIONED
   UNMATCHED_ZOHO_OWNER
+  CRM_BACKFILL_FAILED
 }
 
 model NotificationLog {
@@ -609,6 +610,8 @@ model AppConfig {
 
   notificationCronSchedule  String?  @map("notification_cron_schedule")
   weeklyReportCronSchedule  String?  @map("weekly_report_cron_schedule")
+  crmLeadsSyncCronSchedule  String?  @map("crm_leads_sync_cron_schedule")
+  crmLeadsBackfillCronSchedule String? @map("crm_leads_backfill_cron_schedule")
 
   updatedAt                 DateTime @updatedAt
 
@@ -670,6 +673,182 @@ model ErrorLog {
 
   @@index([createdAt])
   @@map("error_log")
+}
+
+// ==================== Zoho CRM Leads Sync ====================
+// Extends the Phase 5 Zoho integration (Tasks module, above) to also sync
+// the Leads module, per the Leads + Reports spec. Leads has ~90 fields —
+// only a core set is modeled as real columns; `rawData` keeps the full
+// payload so a future report never needs a schema migration to reach a
+// field that wasn't anticipated here.
+
+enum CrmActivityType {
+  NOTE
+  CALL
+  EVENT
+  TASK
+  EMAIL
+}
+
+model CrmLead {
+  id             String    @id @default(cuid())
+  zohoId         String    @unique @map("zoho_id")
+
+  fullName       String?   @map("full_name")
+  firstName      String?   @map("first_name")
+  lastName       String?   @map("last_name")
+  company        String?
+  email          String?
+  phone          String?
+  leadSource     String?   @map("lead_source")
+  description    String?
+  tags           String[]  @default([])
+
+  // Raw Lead_Status picklist value plus the derived funnel bucket it maps to
+  // (see modules/crmLeads/funnelStage.ts) — kept alongside each other so a
+  // report can group by either without recomputing.
+  leadStatus     String?   @map("lead_status")
+  funnelStage    String?   @map("funnel_stage")
+
+  // Denormalized from the `Owner` field for fast querying without joining
+  // back out to Zoho on every report. Kept as an informational field (shown
+  // as "Owner" on the lead detail page) — no longer the basis for any
+  // staff-level filtering/grouping, since Owner in this org doesn't reliably
+  // track which real staff member is working a lead (see `staffName` below).
+  ownerId        String?   @map("owner_id")
+  ownerName      String?   @map("owner_name")
+  ownerEmail     String?   @map("owner_email")
+
+  // Client-added custom picklist field ("Staff Name", API name `Staff_Name`)
+  // — the actual field of record for "who's working this lead", distinct
+  // from Owner. This is the basis for every staff-level filter/grouping
+  // across CRM Reports (Assignment Overview, Conversion Rate, Stage-wise,
+  // Kanban, Lead-wise, Staff-wise, Closure Report's deals-converted, the
+  // shared Staff filter). Zoho tracks no change history for it, so unlike
+  // ownerName there's no equivalent of `ownerHistory` for this field.
+  staffName      String?   @map("staff_name")
+
+  converted            Boolean   @default(false)
+  convertedAt           DateTime? @map("converted_at")
+  convertedAccountId    String?   @map("converted_account_id")
+  convertedContactId    String?   @map("converted_contact_id")
+  convertedDealId       String?   @map("converted_deal_id")
+
+  zohoCreatedTime  DateTime? @map("zoho_created_time")
+  zohoModifiedTime DateTime? @map("zoho_modified_time")
+
+  // Computed by our own sync as max(activity.occurredAt) across the unified
+  // feed below — deliberately not trusted from Zoho's own Last_Activity_Time
+  // rollup, which isn't granular enough for the "latest modification" report.
+  lastActivityAt   DateTime? @map("last_activity_at")
+
+  rawData        Json      @map("raw_data")
+  syncedAt       DateTime  @default(now()) @map("synced_at")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  activities     CrmLeadActivity[]
+  stageHistory   CrmLeadStageHistory[]
+  ownerHistory   CrmLeadOwnerHistory[]
+
+  @@index([funnelStage])
+  @@index([ownerId])
+  @@index([staffName])
+  @@index([zohoModifiedTime])
+  @@map("crm_leads")
+}
+
+// Unified Notes/Calls/Events/Tasks/Emails feed for a lead — the single table
+// behind "latest modification to a lead", the lead-wise activity timeline,
+// and the staff-wise "activities they logged" view.
+model CrmLeadActivity {
+  id             String           @id @default(cuid())
+  leadId         String           @map("lead_id")
+  lead           CrmLead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  activityType   CrmActivityType  @map("activity_type")
+  zohoActivityId String           @map("zoho_activity_id")
+  occurredAt     DateTime         @map("occurred_at")
+  actorId        String?          @map("actor_id")
+  actorName      String?          @map("actor_name")
+  summary        String?
+  // Only meaningfully populated for TASK (Due_Date) and CALL/TASK (a status
+  // string — for Calls, derived from which related list it came from since
+  // Zoho doesn't expose a clean status field there; see crmLeads.service.ts)
+  // — added specifically for the Daily Report (Section: everyday morning-
+  // meeting sheet). Nullable/unused for Note/Event/Email.
+  dueDate        DateTime?        @map("due_date")
+  status         String?
+  rawData        Json             @map("raw_data")
+  createdAt      DateTime         @default(now())
+
+  // A re-sync re-fetches the same related-list pages; this stops that from
+  // creating duplicate rows for an activity already seen.
+  @@unique([leadId, activityType, zohoActivityId])
+  @@index([leadId, occurredAt])
+  @@index([actorId])
+  @@index([activityType, dueDate])
+  @@map("crm_lead_activity")
+}
+
+// Zoho's standard field-history tracking may not be enabled on Lead_Status
+// (an org setting we can't change from here — see README "Known gaps"), so
+// this table is how "stage moved X -> Y" is captured at all: every sync
+// diffs the incoming Lead_Status against what's currently stored and, on a
+// change, inserts a row here. It only starts capturing from the moment this
+// feature first runs — there is no way to backfill it before that.
+model CrmLeadStageHistory {
+  id        String   @id @default(cuid())
+  leadId    String   @map("lead_id")
+  lead      CrmLead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStage String?  @map("from_stage")
+  toStage   String   @map("to_stage")
+  changedAt DateTime @default(now()) @map("changed_at")
+
+  @@index([leadId])
+  @@index([changedAt])
+  @@map("crm_lead_stage_history")
+}
+
+// Same diff-on-sync pattern as CrmLeadStageHistory, but for `Owner` — Zoho
+// has no "date assigned" field of its own, so this is what answers "who a
+// lead is assigned to and when that last changed".
+model CrmLeadOwnerHistory {
+  id            String   @id @default(cuid())
+  leadId        String   @map("lead_id")
+  lead          CrmLead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromOwnerId   String?  @map("from_owner_id")
+  fromOwnerName String?  @map("from_owner_name")
+  toOwnerId     String?  @map("to_owner_id")
+  toOwnerName   String?  @map("to_owner_name")
+  changedAt     DateTime @default(now()) @map("changed_at")
+
+  @@index([leadId])
+  @@index([changedAt])
+  @@map("crm_lead_owner_history")
+}
+
+// Incremental-sync cursor, keyed by Zoho module name. The existing Tasks
+// sync (above) re-fetches the whole module every run, which is fine at its
+// volume; Leads plus five related lists per lead is not, so this is new.
+model CrmSyncState {
+  module                 String    @id
+  lastSyncedModifiedTime DateTime? @map("last_synced_modified_time")
+  lastFullSyncAt         DateTime? @map("last_full_sync_at")
+  status                 String?
+
+  @@map("crm_sync_state")
+}
+
+model CrmLeadSyncLog {
+  id           String         @id @default(cuid())
+  zohoLeadId   String         @map("zoho_lead_id")
+  localLeadId  String?        @map("local_lead_id")
+  status       ZohoSyncStatus
+  errorMessage String?        @map("error_message")
+  syncedAt     DateTime       @default(now()) @map("synced_at")
+
+  @@index([status])
+  @@map("crm_lead_sync_log")
 }
 
 // Backs atomic task-number generation. `scope` is "top-level" for the shared

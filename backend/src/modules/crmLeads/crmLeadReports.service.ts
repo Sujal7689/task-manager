@@ -1,0 +1,741 @@
+import { CrmActivityType, Prisma } from "@prisma/client";
+import { prisma } from "../../config/prisma";
+import { AppError } from "../../utils/appError";
+import { FUNNEL_ORDER } from "./funnelStage";
+
+// ---------------------------------------------------------------------------
+// Leads + Reports spec, Section 5: landing page widgets + Lead-wise/Staff-wise
+// tabs, all read-only over the tables populated by crmLeads.service.ts.
+// Confirmed with the client: conversion rate is same-period (leads converted
+// in a period / leads created in that same period), and the funnel groups
+// Lead_Status into the 5-stage + dropped/other split in funnelStage.ts.
+//
+// Every list/aggregate below accepts an optional `createdSince`/`createdBefore`
+// date range and an optional `staffName` filter — both applied uniformly
+// across every tab via a shared control in CrmReportsHub.
+//
+// `staffName` is the client's custom "Staff Name" picklist field on the Lead
+// (Zoho API name `Staff_Name`) — the actual field of record for "who's
+// working this lead". It is deliberately NOT the same as `ownerName` (the
+// standard Zoho `Owner` field): in this org, Owner doesn't reliably track
+// the assigned staff member, so every staff-level filter/grouping below is
+// keyed on `staffName` instead. `ownerName` is still synced and still shown
+// as "Owner" on the lead detail page, purely informational.
+//
+// One nuance worth flagging: for activity-level queries (Activity Feed,
+// Daily Report, Closure Report's "activities closed"), the staff filter
+// matches `actorName` — who actually performed that piece of work — not the
+// lead's staffName, since those can genuinely differ (a lead can be staffed
+// to one rep while another logs calls against it). For lead-level queries
+// (Assignment Overview, Conversion Rate, Stage-wise, Kanban, Closure
+// Report's "deals converted"), it matches the lead's own `staffName`, since
+// that's a property of the lead, not of an individual action taken on it.
+// ---------------------------------------------------------------------------
+
+const PAGE_SIZE_DEFAULT = 25;
+const PAGE_SIZE_MAX = 100;
+
+function clampPageSize(pageSize?: number): number {
+  if (!pageSize || pageSize < 1) return PAGE_SIZE_DEFAULT;
+  return Math.min(pageSize, PAGE_SIZE_MAX);
+}
+
+// Shared date-range fragment for any query filtering on the lead's own
+// `zohoCreatedTime` — `createdBefore` is exclusive, matching `createdSince`
+// being inclusive (a lead created exactly at the boundary counts as "since").
+function leadDateRange(since?: Date, before?: Date): { gte?: Date; lt?: Date } | undefined {
+  if (!since && !before) return undefined;
+  return { ...(since ? { gte: since } : {}), ...(before ? { lt: before } : {}) };
+}
+
+export interface ReportFilters {
+  createdSince?: Date;
+  createdBefore?: Date;
+  staffName?: string;
+}
+
+// -------------------- Widget 1: Assignment overview --------------------
+
+const ASSIGNMENT_SORT_FIELDS = ["fullName", "staffName", "funnelStage", "lastActivityAt", "zohoCreatedTime"] as const;
+type AssignmentSortField = (typeof ASSIGNMENT_SORT_FIELDS)[number];
+
+export interface AssignmentOverviewParams extends ReportFilters {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+}
+
+export async function getAssignmentOverview(params: AssignmentOverviewParams) {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = clampPageSize(params.pageSize);
+  const sortBy: AssignmentSortField = ASSIGNMENT_SORT_FIELDS.includes(params.sortBy as AssignmentSortField)
+    ? (params.sortBy as AssignmentSortField)
+    : "lastActivityAt";
+  const sortDir = params.sortDir === "asc" ? "asc" : "desc";
+
+  const dateRange = leadDateRange(params.createdSince, params.createdBefore);
+  const where: Prisma.CrmLeadWhereInput = {
+    ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
+    ...(params.staffName ? { staffName: params.staffName } : {}),
+    ...(params.search
+      ? {
+          OR: [
+            { fullName: { contains: params.search, mode: "insensitive" } },
+            { company: { contains: params.search, mode: "insensitive" } },
+            { staffName: { contains: params.search, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+
+  const [total, leads] = await Promise.all([
+    prisma.crmLead.count({ where }),
+    prisma.crmLead.findMany({
+      where,
+      orderBy: { [sortBy]: sortDir },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        ownerHistory: { orderBy: { changedAt: "desc" }, take: 1 },
+        activities: { orderBy: { occurredAt: "desc" }, take: 1 },
+      },
+    }),
+  ]);
+
+  return {
+    total,
+    page,
+    pageSize,
+    rows: leads.map((l) => ({
+      id: l.id,
+      fullName: l.fullName,
+      company: l.company,
+      funnelStage: l.funnelStage,
+      staffName: l.staffName,
+      ownerName: l.ownerName,
+      assignedAt: l.ownerHistory[0]?.changedAt ?? l.zohoCreatedTime,
+      lastActivity: l.activities[0]
+        ? { type: l.activities[0].activityType, summary: l.activities[0].summary, occurredAt: l.activities[0].occurredAt }
+        : null,
+      lastActivityAt: l.lastActivityAt,
+    })),
+  };
+}
+
+// -------------------- Grouped-by-staff view (Dashboard) --------------------
+// Every lead nested under a collapsible section per staff member — an
+// alternative to the flat/paginated Assignment Overview widget for "what
+// does each person's list actually look like", modeled on a grouped list
+// view from another in-house tool the client already uses day to day.
+
+export async function getLeadsGroupedByStaff(filters: ReportFilters = {}) {
+  const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const where: Prisma.CrmLeadWhereInput = {
+    ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
+    ...(filters.staffName ? { staffName: filters.staffName } : {}),
+  };
+  const leads = await prisma.crmLead.findMany({
+    where,
+    select: {
+      id: true,
+      fullName: true,
+      company: true,
+      phone: true,
+      leadSource: true,
+      leadStatus: true,
+      funnelStage: true,
+      staffName: true,
+      zohoCreatedTime: true,
+    },
+    orderBy: { zohoCreatedTime: "desc" },
+    take: 2000, // safety cap — fine at this org's current scale
+  });
+
+  const byStaff = new Map<string, { staffName: string | null; leads: typeof leads }>();
+  for (const l of leads) {
+    const key = l.staffName ?? "(unassigned)";
+    const entry = byStaff.get(key) ?? { staffName: l.staffName, leads: [] };
+    entry.leads.push(l);
+    byStaff.set(key, entry);
+  }
+
+  return Array.from(byStaff.entries())
+    .map(([key, { staffName, leads }]) => ({ staffName: staffName ?? key, count: leads.length, leads }))
+    .sort((a, b) => b.count - a.count);
+}
+
+// -------------------- Widget 2: Latest activity feed --------------------
+
+export async function getActivityFeed(params: { page?: number; pageSize?: number; type?: CrmActivityType } & ReportFilters) {
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = clampPageSize(params.pageSize);
+  const dateRange = leadDateRange(params.createdSince, params.createdBefore);
+  const where: Prisma.CrmLeadActivityWhereInput = {
+    ...(params.type ? { activityType: params.type } : {}),
+    // Staff filter here matches who *performed* the activity, not the lead's staffName.
+    ...(params.staffName ? { actorName: params.staffName } : {}),
+    ...(dateRange ? { lead: { zohoCreatedTime: dateRange } } : {}),
+  };
+
+  const [total, rows] = await Promise.all([
+    prisma.crmLeadActivity.count({ where }),
+    prisma.crmLeadActivity.findMany({
+      where,
+      orderBy: { occurredAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { lead: { select: { id: true, fullName: true, company: true } } },
+    }),
+  ]);
+
+  return {
+    total,
+    page,
+    pageSize,
+    rows: rows.map((r) => ({
+      id: r.id,
+      leadId: r.leadId,
+      leadName: r.lead.fullName ?? r.lead.company ?? "(unnamed lead)",
+      type: r.activityType,
+      actorName: r.actorName,
+      summary: r.summary,
+      occurredAt: r.occurredAt,
+    })),
+  };
+}
+
+// -------------------- Widget 3: Conversion rate (same-period) --------------------
+
+interface PeriodCount {
+  period: Date;
+  count: bigint;
+}
+
+export async function getConversionRate(granularity: "day" | "month", filters: ReportFilters = {}) {
+  const { createdSince, createdBefore, staffName } = filters;
+  const rollingWindowStart = granularity === "day" ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+  // The rolling window and the client's cutoff both narrow the range — use
+  // whichever is later, so turning the cutoff on never re-includes data the
+  // rolling window would otherwise have excluded (or vice versa).
+  const windowStart = createdSince && createdSince > rollingWindowStart ? createdSince : rollingWindowStart;
+  // Each fragment is separated by an explicit space — concatenating adjacent
+  // Prisma.sql fragments with no whitespace between them produces invalid SQL
+  // like `$2AND "staff_name"...` when more than one condition is active.
+  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffName ? Prisma.sql` AND "staff_name" = ${staffName}` : Prisma.empty}`;
+  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffName ? Prisma.sql` AND "staff_name" = ${staffName}` : Prisma.empty}`;
+
+  const [created, converted] =
+    granularity === "day"
+      ? await Promise.all([
+          prisma.$queryRaw<PeriodCount[]>`SELECT date_trunc('day', "zoho_created_time") AS period, COUNT(*)::bigint AS count FROM crm_leads WHERE "zoho_created_time" >= ${windowStart} ${extraCreated} GROUP BY period`,
+          prisma.$queryRaw<PeriodCount[]>`SELECT date_trunc('day', "converted_at") AS period, COUNT(*)::bigint AS count FROM crm_leads WHERE "converted_at" >= ${windowStart} ${extraConverted} GROUP BY period`,
+        ])
+      : await Promise.all([
+          prisma.$queryRaw<PeriodCount[]>`SELECT date_trunc('month', "zoho_created_time") AS period, COUNT(*)::bigint AS count FROM crm_leads WHERE "zoho_created_time" >= ${windowStart} ${extraCreated} GROUP BY period`,
+          prisma.$queryRaw<PeriodCount[]>`SELECT date_trunc('month', "converted_at") AS period, COUNT(*)::bigint AS count FROM crm_leads WHERE "converted_at" >= ${windowStart} ${extraConverted} GROUP BY period`,
+        ]);
+
+  const createdMap = new Map(created.map((r) => [r.period.toISOString(), Number(r.count)]));
+  const convertedMap = new Map(converted.map((r) => [r.period.toISOString(), Number(r.count)]));
+  const periods = Array.from(new Set([...createdMap.keys(), ...convertedMap.keys()])).sort();
+
+  return periods.map((p) => {
+    const createdCount = createdMap.get(p) ?? 0;
+    const convertedCount = convertedMap.get(p) ?? 0;
+    return {
+      period: p,
+      created: createdCount,
+      converted: convertedCount,
+      // Same-period definition (confirmed with client): converted-in-period /
+      // created-in-period — not a cohort of the same leads.
+      rate: createdCount > 0 ? Math.round((convertedCount / createdCount) * 1000) / 10 : 0,
+    };
+  });
+}
+
+// -------------------- Widget 4: Stage-wise --------------------
+
+export async function getStageWise(filters: ReportFilters = {}) {
+  const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const leadWhere: Prisma.CrmLeadWhereInput = {
+    ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
+    ...(filters.staffName ? { staffName: filters.staffName } : {}),
+  };
+  const counts = await prisma.crmLead.groupBy({ by: ["funnelStage"], where: leadWhere, _count: { _all: true } });
+  const countFor = (stage: string) => counts.find((c) => c.funnelStage === stage)?._count._all ?? 0;
+
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const movements = await prisma.crmLeadStageHistory.groupBy({
+    by: ["fromStage", "toStage"],
+    where: {
+      changedAt: { gte: yesterday },
+      ...(dateRange || filters.staffName ? { lead: leadWhere } : {}),
+    },
+    _count: { _all: true },
+  });
+
+  return {
+    funnel: FUNNEL_ORDER.map((stage) => ({ stage, count: countFor(stage) })),
+    dropped: countFor("DROPPED"),
+    other: countFor("OTHER"),
+    movementsLast24h: movements.map((m) => ({ fromStage: m.fromStage, toStage: m.toStage, count: m._count._all })),
+  };
+}
+
+// -------------------- Kanban board (Dashboard + Lead-wise browsing, Staff-wise via staffName) --------------------
+
+const KANBAN_STAGES = [...FUNNEL_ORDER, "DROPPED", "OTHER"];
+
+export async function getKanbanBoard(params: { search?: string } & ReportFilters = {}) {
+  const dateRange = leadDateRange(params.createdSince, params.createdBefore);
+  const where: Prisma.CrmLeadWhereInput = {
+    ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
+    ...(params.staffName ? { staffName: params.staffName } : {}),
+    ...(params.search
+      ? { OR: [{ fullName: { contains: params.search, mode: "insensitive" } }, { company: { contains: params.search, mode: "insensitive" } }] }
+      : {}),
+  };
+
+  const leads = await prisma.crmLead.findMany({
+    where,
+    select: { id: true, fullName: true, company: true, staffName: true, funnelStage: true, lastActivityAt: true },
+    orderBy: { lastActivityAt: "desc" },
+    take: 1000, // safety cap — fine at this org's current scale, revisit if lead volume grows much further
+  });
+
+  return KANBAN_STAGES.map((stage) => ({
+    stage,
+    leads: leads
+      .filter((l) => l.funnelStage === stage)
+      .map((l) => ({ id: l.id, fullName: l.fullName, company: l.company, staffName: l.staffName, lastActivityAt: l.lastActivityAt })),
+  }));
+}
+
+// -------------------- Lead-wise report --------------------
+
+export async function listLeadsForSelector(search: string | undefined, filters: ReportFilters = {}) {
+  const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  return prisma.crmLead.findMany({
+    where: {
+      ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
+      ...(filters.staffName ? { staffName: filters.staffName } : {}),
+      ...(search ? { OR: [{ fullName: { contains: search, mode: "insensitive" } }, { company: { contains: search, mode: "insensitive" } }] } : {}),
+    },
+    select: { id: true, fullName: true, company: true, funnelStage: true, staffName: true },
+    orderBy: { fullName: "asc" },
+    take: 50,
+  });
+}
+
+// Every touch on a lead — activities (Notes/Calls/Tasks/Events/Emails) plus
+// stage changes and owner reassignments — merged into one chronological
+// timeline, oldest first ("start to bottom... according to the time"),
+// replacing the separate Stage History / Owner History boxes that used to
+// sit next to the activity feed. `activityType` narrows to just that kind
+// of activity, which also hides stage/owner-change entries — a type filter
+// should mean exactly what it says.
+export interface TimelineEntry {
+  id: string;
+  kind: "ACTIVITY" | "STAGE_CHANGE" | "OWNER_CHANGE";
+  activityType: CrmActivityType | null;
+  time: Date;
+  summary: string | null;
+  status: string | null;
+  dueDate: Date | null;
+  actorName: string | null;
+  fromValue: string | null;
+  toValue: string | null;
+}
+
+export async function getLeadDetail(id: string, activityType?: CrmActivityType) {
+  const lead = await prisma.crmLead.findUnique({
+    where: { id },
+    include: {
+      stageHistory: { orderBy: { changedAt: "asc" } },
+      ownerHistory: { orderBy: { changedAt: "asc" } },
+      activities: { where: activityType ? { activityType } : undefined, orderBy: { occurredAt: "asc" } },
+    },
+  });
+  if (!lead) throw new AppError(404, "Lead not found");
+
+  const timeline: TimelineEntry[] = [
+    ...lead.activities.map((a) => ({
+      id: a.id,
+      kind: "ACTIVITY" as const,
+      activityType: a.activityType,
+      time: a.occurredAt,
+      summary: a.summary,
+      status: a.status,
+      dueDate: a.dueDate,
+      actorName: a.actorName,
+      fromValue: null,
+      toValue: null,
+    })),
+    ...(activityType
+      ? []
+      : lead.stageHistory.map((h) => ({
+          id: h.id,
+          kind: "STAGE_CHANGE" as const,
+          activityType: null,
+          time: h.changedAt,
+          summary: null,
+          status: null,
+          dueDate: null,
+          actorName: null,
+          fromValue: h.fromStage,
+          toValue: h.toStage,
+        }))),
+    ...(activityType
+      ? []
+      : lead.ownerHistory.map((h) => ({
+          id: h.id,
+          kind: "OWNER_CHANGE" as const,
+          activityType: null,
+          time: h.changedAt,
+          summary: null,
+          status: null,
+          dueDate: null,
+          actorName: null,
+          fromValue: h.fromOwnerName,
+          toValue: h.toOwnerName,
+        }))),
+  ].sort((a, b) => a.time.getTime() - b.time.getTime());
+
+  return {
+    id: lead.id,
+    fullName: lead.fullName,
+    company: lead.company,
+    leadSource: lead.leadSource,
+    leadStatus: lead.leadStatus,
+    funnelStage: lead.funnelStage,
+    staffName: lead.staffName,
+    ownerName: lead.ownerName,
+    zohoCreatedTime: lead.zohoCreatedTime,
+    converted: lead.converted,
+    convertedAt: lead.convertedAt,
+    timeline,
+  };
+}
+
+// -------------------- Staff-wise report --------------------
+// Keyed by `staffName` — the client's "Staff Name" custom field on the Lead
+// (Zoho API name `Staff_Name`), not the standard `Owner` field. Client
+// direction: Owner doesn't reliably reflect who's actually working a lead in
+// this org, so every staff-level report uses this field instead.
+
+export interface StaffOverviewRow {
+  staffName: string;
+  leadsOwned: number;
+  conversionRate: number;
+  activitiesLogged: number;
+  lastActivityAt: Date | null;
+}
+
+export async function listStaffOverview(filters: ReportFilters = {}): Promise<StaffOverviewRow[]> {
+  const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const leads = await prisma.crmLead.findMany({
+    where: {
+      staffName: filters.staffName ? filters.staffName : { not: null },
+      ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
+    },
+    select: { staffName: true, converted: true },
+  });
+
+  const byStaff = new Map<string, { total: number; converted: number }>();
+  for (const l of leads) {
+    if (!l.staffName) continue;
+    const entry = byStaff.get(l.staffName) ?? { total: 0, converted: 0 };
+    entry.total++;
+    if (l.converted) entry.converted++;
+    byStaff.set(l.staffName, entry);
+  }
+
+  const activityAgg = await prisma.crmLeadActivity.groupBy({
+    by: ["actorName"],
+    where: {
+      actorName: filters.staffName ? filters.staffName : { not: null },
+      ...(dateRange ? { lead: { zohoCreatedTime: dateRange } } : {}),
+    },
+    _count: { _all: true },
+    _max: { occurredAt: true },
+  });
+  const activityByName = new Map(activityAgg.map((a) => [a.actorName as string, { count: a._count._all, lastActivityAt: a._max.occurredAt }]));
+
+  // Union of names seen as either a lead's staffName or an activity actor —
+  // a staff member who's logged activity but currently has no leads staffed
+  // to them (or vice versa) should still show up.
+  const allNames = new Set<string>([...byStaff.keys(), ...activityByName.keys()]);
+
+  return Array.from(allNames)
+    .map((staffName) => {
+      const owned = byStaff.get(staffName);
+      const act = activityByName.get(staffName);
+      return {
+        staffName,
+        leadsOwned: owned?.total ?? 0,
+        conversionRate: owned && owned.total > 0 ? Math.round((owned.converted / owned.total) * 1000) / 10 : 0,
+        activitiesLogged: act?.count ?? 0,
+        lastActivityAt: act?.lastActivityAt ?? null,
+      };
+    })
+    .sort((a, b) => a.staffName.localeCompare(b.staffName));
+}
+
+export async function getStaffDetail(staffName: string, filters: ReportFilters = {}) {
+  const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const leadWhere: Prisma.CrmLeadWhereInput = { staffName, ...(dateRange ? { zohoCreatedTime: dateRange } : {}) };
+  const [leads, activitiesLogged] = await Promise.all([
+    prisma.crmLead.findMany({
+      where: leadWhere,
+      orderBy: { zohoCreatedTime: "desc" },
+      include: {
+        // Latest activity on the lead itself (by anyone, same convention as
+        // the Dashboard's Assignment Overview widget) — folded into this one
+        // table instead of a second "activity feed" panel next to it.
+        activities: { orderBy: { occurredAt: "desc" }, take: 1 },
+      },
+    }),
+    prisma.crmLeadActivity.count({
+      where: { actorName: staffName, ...(dateRange ? { lead: { zohoCreatedTime: dateRange } } : {}) },
+    }),
+  ]);
+
+  if (leads.length === 0 && activitiesLogged === 0) {
+    // Empty because the date filter excluded everything is a normal state
+    // (the frontend renders it as an empty table), not a 404 — only a truly
+    // unknown name (no leads/activity for them at all, filter or no filter) is.
+    const everAssigned = await prisma.crmLead.findFirst({ where: { staffName } });
+    if (!everAssigned) {
+      const everActive = await prisma.crmLeadActivity.findFirst({ where: { actorName: staffName } });
+      if (!everActive) throw new AppError(404, "No leads or activity found for this staff member");
+    }
+  }
+
+  const convertedOwned = leads.filter((l) => l.converted).length;
+
+  return {
+    staffName,
+    leads: leads.map((l) => ({
+      id: l.id,
+      fullName: l.fullName,
+      company: l.company,
+      funnelStage: l.funnelStage,
+      converted: l.converted,
+      // Zoho tracks no change history for the Staff Name field (unlike
+      // Owner), so there's no equivalent of "date staffed to them" — lead
+      // creation date is the closest available signal.
+      assignedAt: l.zohoCreatedTime,
+      lastActivity: l.activities[0]
+        ? { type: l.activities[0].activityType, summary: l.activities[0].summary, occurredAt: l.activities[0].occurredAt }
+        : null,
+    })),
+    stats: {
+      leadsOwned: leads.length,
+      activitiesLogged,
+      // All-time, not the same-period window used by the landing-page widget
+      // — "their" conversion rate reads more naturally as a lifetime number.
+      conversionRate: leads.length > 0 ? Math.round((convertedOwned / leads.length) * 1000) / 10 : 0,
+    },
+  };
+}
+
+// -------------------- Nepal-time period bounds (Daily Report + Closure Report) --------------------
+// "Today"/"yesterday"/"this week"/"this month" are anchored to Nepal local
+// time (Asia/Kathmandu, UTC+5:45) regardless of the server's own timezone,
+// since that's where the team actually is.
+const KATHMANDU_OFFSET_MS = (5 * 60 + 45) * 60 * 1000;
+
+function kathmanduDayBounds(daysAgo: number): { start: Date; end: Date } {
+  const shifted = new Date(Date.now() + KATHMANDU_OFFSET_MS);
+  shifted.setUTCHours(0, 0, 0, 0);
+  shifted.setUTCDate(shifted.getUTCDate() - daysAgo);
+  const start = new Date(shifted.getTime() - KATHMANDU_OFFSET_MS);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
+export type ClosurePeriod = "day" | "week" | "month";
+
+function kathmanduPeriodBounds(period: ClosurePeriod): { start: Date; end: Date } {
+  const shifted = new Date(Date.now() + KATHMANDU_OFFSET_MS);
+  shifted.setUTCHours(0, 0, 0, 0);
+  if (period === "week") {
+    const dow = shifted.getUTCDay(); // 0=Sun..6=Sat
+    shifted.setUTCDate(shifted.getUTCDate() - (dow === 0 ? 6 : dow - 1)); // back to Monday
+  } else if (period === "month") {
+    shifted.setUTCDate(1);
+  }
+  const start = new Date(shifted.getTime() - KATHMANDU_OFFSET_MS);
+  let end: Date;
+  if (period === "day") end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  else if (period === "week") end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+  else {
+    const endShifted = new Date(shifted);
+    endShifted.setUTCMonth(endShifted.getUTCMonth() + 1);
+    end = new Date(endShifted.getTime() - KATHMANDU_OFFSET_MS);
+  }
+  return { start, end };
+}
+
+// -------------------- Daily Report (everyday morning-meeting sheet) --------------------
+// Client-confirmed scope: CRM Leads/Calls only (not the internal Task app).
+// Deliberately ignores the leads-since date filter used everywhere else —
+// this report is about what's happening *today*, regardless of how old the
+// underlying lead is, so excluding older leads could hide real ongoing work.
+// The staff filter here matches `actorName` (who actually performed the
+// activity), same activity-level convention as Activity Feed/Closure
+// Report's "activities closed" — see the module-level comment above.
+
+interface DailyReportItem {
+  activityId: string;
+  leadId: string;
+  leadName: string;
+  company: string | null;
+  staff: string | null;
+  subject: string | null;
+  status: string | null;
+  time: Date;
+}
+
+function byStaffCounts(items: DailyReportItem[]): { staff: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const key = item.staff ?? "Unassigned";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([staff, count]) => ({ staff, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function toDailyItems(activities: { id: string; leadId: string; actorName: string | null; summary: string | null; status: string | null; occurredAt: Date; lead: { fullName: string | null; company: string | null } }[]): DailyReportItem[] {
+  return activities.map((a) => ({
+    activityId: a.id,
+    leadId: a.leadId,
+    leadName: a.lead.fullName ?? a.lead.company ?? "(unnamed lead)",
+    company: a.lead.company,
+    staff: a.actorName,
+    subject: a.summary,
+    status: a.status,
+    time: a.occurredAt,
+  }));
+}
+
+export async function getDailyReport(staffName?: string) {
+  const yesterday = kathmanduDayBounds(1);
+  const today = kathmanduDayBounds(0);
+  const leadSelect = { select: { fullName: true, company: true } } as const;
+  const staffFilter = staffName ? { actorName: staffName } : {};
+
+  const [completedYesterdayRaw, dueTodayRaw, callsYesterdayRaw, callsTodayRaw] = await Promise.all([
+    // Tasks whose status turned Completed, last touched yesterday (Modified_Time is what occurredAt is set from for TASK activities).
+    prisma.crmLeadActivity.findMany({
+      where: { activityType: "TASK", status: "Completed", occurredAt: { gte: yesterday.start, lt: yesterday.end }, ...staffFilter },
+      orderBy: { occurredAt: "desc" },
+      include: { lead: leadSelect },
+    }),
+    // Open tasks (not Completed) due today.
+    prisma.crmLeadActivity.findMany({
+      where: { activityType: "TASK", status: { not: "Completed" }, dueDate: { gte: today.start, lt: today.end }, ...staffFilter },
+      orderBy: { dueDate: "asc" },
+      include: { lead: leadSelect },
+    }),
+    // Every call that was *supposed* to happen yesterday (Call_Start_Time
+    // yesterday) — `status` on each item tells you whether it actually got
+    // made ("Completed", i.e. moved to Calls_History) or was missed (still
+    // "Scheduled" — Zoho never moved it, meaning nobody logged it as done).
+    prisma.crmLeadActivity.findMany({
+      where: { activityType: "CALL", occurredAt: { gte: yesterday.start, lt: yesterday.end }, ...staffFilter },
+      orderBy: { occurredAt: "asc" },
+      include: { lead: leadSelect },
+    }),
+    // Every call scheduled for today, regardless of whether it's already
+    // happened — "who's got which calls today" is the point, not just what's left.
+    prisma.crmLeadActivity.findMany({
+      where: { activityType: "CALL", occurredAt: { gte: today.start, lt: today.end }, ...staffFilter },
+      orderBy: { occurredAt: "asc" },
+      include: { lead: leadSelect },
+    }),
+  ]);
+
+  const completedYesterday = toDailyItems(completedYesterdayRaw);
+  const dueToday = toDailyItems(dueTodayRaw);
+  const callsYesterday = toDailyItems(callsYesterdayRaw);
+  const callsToday = toDailyItems(callsTodayRaw);
+  const missedCallsYesterday = callsYesterday.filter((c) => c.status !== "Completed").length;
+
+  return {
+    date: today.start.toISOString(),
+    completedYesterday: { total: completedYesterday.length, byStaff: byStaffCounts(completedYesterday), items: completedYesterday },
+    dueToday: { total: dueToday.length, byStaff: byStaffCounts(dueToday), items: dueToday },
+    callsYesterday: { total: callsYesterday.length, missed: missedCallsYesterday, byStaff: byStaffCounts(callsYesterday), items: callsYesterday },
+    callsToday: { total: callsToday.length, byStaff: byStaffCounts(callsToday), items: callsToday },
+  };
+}
+
+// -------------------- Closure Report (day/week/month per-staff board) --------------------
+// "Closure report" per the client: how many tasks/activities each person
+// closed, and how many deals they converted, over a day/week/month. Two
+// different credit rules, deliberately: activities closed go to whoever
+// performed them (actorName — the person doing the work), deals converted
+// go to whoever the lead is staffed to (staffName — conversion is an
+// outcome of the deal, not of whichever staff member happened to touch it
+// last).
+
+export interface ClosureReportRow {
+  staff: string;
+  activitiesClosed: number;
+  dealsConverted: number;
+}
+
+export async function getClosureReport(period: ClosurePeriod, staffName?: string) {
+  const { start, end } = kathmanduPeriodBounds(period);
+
+  const [activityAgg, dealAgg] = await Promise.all([
+    prisma.crmLeadActivity.groupBy({
+      by: ["actorName"],
+      where: {
+        status: "Completed",
+        activityType: { in: ["TASK", "CALL"] },
+        occurredAt: { gte: start, lt: end },
+        actorName: staffName ? staffName : { not: null },
+      },
+      _count: { _all: true },
+    }),
+    prisma.crmLead.groupBy({
+      by: ["staffName"],
+      where: {
+        converted: true,
+        convertedAt: { gte: start, lt: end },
+        staffName: staffName ? staffName : { not: null },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const byStaff = new Map<string, ClosureReportRow>();
+  for (const a of activityAgg) {
+    const name = a.actorName as string;
+    const row = byStaff.get(name) ?? { staff: name, activitiesClosed: 0, dealsConverted: 0 };
+    row.activitiesClosed = a._count._all;
+    byStaff.set(name, row);
+  }
+  for (const d of dealAgg) {
+    const name = d.staffName as string;
+    const row = byStaff.get(name) ?? { staff: name, activitiesClosed: 0, dealsConverted: 0 };
+    row.dealsConverted = d._count._all;
+    byStaff.set(name, row);
+  }
+
+  const rows = Array.from(byStaff.values()).sort((a, b) => b.activitiesClosed + b.dealsConverted - (a.activitiesClosed + a.dealsConverted));
+
+  return {
+    period,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    totals: { activitiesClosed: rows.reduce((s, r) => s + r.activitiesClosed, 0), dealsConverted: rows.reduce((s, r) => s + r.dealsConverted, 0) },
+    rows,
+  };
+}

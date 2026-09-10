@@ -23,6 +23,8 @@ export const env = {
 
   notificationCronSchedule: process.env.NOTIFICATION_CRON_SCHEDULE ?? "0 * * * *",
   weeklyReportCronSchedule: process.env.WEEKLY_REPORT_CRON_SCHEDULE ?? "0 8 * * 1",
+  crmLeadsSyncCronSchedule: process.env.CRM_LEADS_SYNC_CRON_SCHEDULE ?? "*/15 * * * *",
+  crmLeadsBackfillCronSchedule: process.env.CRM_LEADS_BACKFILL_CRON_SCHEDULE ?? "0 * * * *",
 
   zohoClientId: process.env.ZOHO_CLIENT_ID ?? "",
   zohoClientSecret: process.env.ZOHO_CLIENT_SECRET ?? "",

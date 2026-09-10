@@ -17,6 +17,7 @@ const baseNavItems = [
 const managerNavItems = [
   { to: "/dashboard/team", label: "Team Dashboard" },
   { to: "/reports", label: "Reports" },
+  { to: "/crm-reports", label: "CRM Reports" },
 ];
 const adminNavItems = [
   { to: "/leadership", label: "Leadership" },

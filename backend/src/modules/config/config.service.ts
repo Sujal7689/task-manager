@@ -21,6 +21,8 @@ export interface EffectiveSettings {
   zohoApiBaseUrl: string;
   notificationCronSchedule: string;
   weeklyReportCronSchedule: string;
+  crmLeadsSyncCronSchedule: string;
+  crmLeadsBackfillCronSchedule: string;
 }
 
 // Every runtime-configurable setting: the database override if set, else the
@@ -40,6 +42,8 @@ export async function getEffectiveSettings(): Promise<EffectiveSettings> {
     zohoApiBaseUrl: config?.zohoApiBaseUrl ?? env.zohoApiBaseUrl,
     notificationCronSchedule: config?.notificationCronSchedule ?? env.notificationCronSchedule,
     weeklyReportCronSchedule: config?.weeklyReportCronSchedule ?? env.weeklyReportCronSchedule,
+    crmLeadsSyncCronSchedule: config?.crmLeadsSyncCronSchedule ?? env.crmLeadsSyncCronSchedule,
+    crmLeadsBackfillCronSchedule: config?.crmLeadsBackfillCronSchedule ?? env.crmLeadsBackfillCronSchedule,
   };
 }
 
@@ -60,6 +64,8 @@ export interface UpdateConfigInput {
   zohoApiBaseUrl?: string | null;
   notificationCronSchedule?: string | null;
   weeklyReportCronSchedule?: string | null;
+  crmLeadsSyncCronSchedule?: string | null;
+  crmLeadsBackfillCronSchedule?: string | null;
 }
 
 export async function updateAppConfig(input: UpdateConfigInput) {

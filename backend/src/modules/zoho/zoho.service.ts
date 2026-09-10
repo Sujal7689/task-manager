@@ -13,7 +13,9 @@ import { getEffectiveSettings } from "../config/config.service";
 
 let cachedToken: { accessToken: string; expiresAt: number } | null = null;
 
-async function getAccessToken(): Promise<string> {
+// Shared with modules/crmLeads (Leads sync) so both consumers of the same
+// Zoho org hit one token cache instead of racing two independent refreshes.
+export async function getAccessToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 30_000) {
     return cachedToken.accessToken;
   }

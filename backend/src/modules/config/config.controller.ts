@@ -4,6 +4,8 @@ import * as service from "./config.service";
 import { AppConfig } from "@prisma/client";
 import { rescheduleEscalationCron } from "../../jobs/escalationCron";
 import { rescheduleWeeklyReportCron } from "../../jobs/weeklyReportCron";
+import { rescheduleCrmLeadsSyncCron } from "../../jobs/crmLeadsSyncCron";
+import { rescheduleCrmLeadsBackfillCron } from "../../jobs/crmLeadsBackfillCron";
 
 const updateSchema = z.object({
   smtpHost: z.string().nullable().optional(),
@@ -18,6 +20,8 @@ const updateSchema = z.object({
   zohoApiBaseUrl: z.string().nullable().optional(),
   notificationCronSchedule: z.string().nullable().optional(),
   weeklyReportCronSchedule: z.string().nullable().optional(),
+  crmLeadsSyncCronSchedule: z.string().nullable().optional(),
+  crmLeadsBackfillCronSchedule: z.string().nullable().optional(),
 });
 
 // Never echo secret values back — only whether one is currently set, and (for
@@ -42,6 +46,8 @@ async function toDisplayShape() {
     zohoApiBaseUrl: effective.zohoApiBaseUrl,
     notificationCronSchedule: effective.notificationCronSchedule,
     weeklyReportCronSchedule: effective.weeklyReportCronSchedule,
+    crmLeadsSyncCronSchedule: effective.crmLeadsSyncCronSchedule,
+    crmLeadsBackfillCronSchedule: effective.crmLeadsBackfillCronSchedule,
     overrides: {
       smtpHost: isOverridden("smtpHost"),
       smtpPort: isOverridden("smtpPort"),
@@ -55,6 +61,8 @@ async function toDisplayShape() {
       zohoApiBaseUrl: isOverridden("zohoApiBaseUrl"),
       notificationCronSchedule: isOverridden("notificationCronSchedule"),
       weeklyReportCronSchedule: isOverridden("weeklyReportCronSchedule"),
+      crmLeadsSyncCronSchedule: isOverridden("crmLeadsSyncCronSchedule"),
+      crmLeadsBackfillCronSchedule: isOverridden("crmLeadsBackfillCronSchedule"),
     },
   };
 }
@@ -69,10 +77,17 @@ export async function updateConfigHandler(req: Request, res: Response) {
 
   // Cron schedules take effect immediately — tear down and recreate the
   // running job instead of requiring a server restart.
-  if ("notificationCronSchedule" in body || "weeklyReportCronSchedule" in body) {
+  if (
+    "notificationCronSchedule" in body ||
+    "weeklyReportCronSchedule" in body ||
+    "crmLeadsSyncCronSchedule" in body ||
+    "crmLeadsBackfillCronSchedule" in body
+  ) {
     const effective = await service.getEffectiveSettings();
     if ("notificationCronSchedule" in body) rescheduleEscalationCron(effective.notificationCronSchedule);
     if ("weeklyReportCronSchedule" in body) rescheduleWeeklyReportCron(effective.weeklyReportCronSchedule);
+    if ("crmLeadsSyncCronSchedule" in body) rescheduleCrmLeadsSyncCron(effective.crmLeadsSyncCronSchedule);
+    if ("crmLeadsBackfillCronSchedule" in body) rescheduleCrmLeadsBackfillCron(effective.crmLeadsBackfillCronSchedule);
   }
 
   res.json(await toDisplayShape());

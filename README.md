@@ -175,6 +175,8 @@ backend/
       leaderboard/                  # Weekly/Monthly/Quarterly leaderboard
       reports/                       # 7 report types (Section 6.8), CSV export
       zoho/                          # OAuth token refresh, polling sync, field mapping
+      crmLeads/                      # Zoho Leads sync (Notes/Calls/Events/Tasks/Emails) — reuses zoho/ OAuth
+                                      # + crmLeadReports.* (read-only endpoints behind the CRM Reports UI)
       auditLog/                      # Audit log viewer endpoint
       escalationRules/                 # Per-department escalation threshold config
 frontend/
@@ -183,7 +185,7 @@ frontend/
     context/AuthContext.tsx
     pages/
       Auth/ Dashboard/ Projects/ Milestones/ Tasks/ Timesheets/
-      Notifications/ Leaderboard/ Performance/ Reports/ Admin/
+      Notifications/ Leaderboard/ Performance/ Reports/ CrmReports/ Admin/
 docker-compose.yml
 nginx/nginx.conf
 .env.example
@@ -290,7 +292,55 @@ decide if/when to revisit them.
 16. **"Team-wise" reporting** — reuses the existing "team = direct reports"
     definition (Section 12 Team Lead decision). The Reports page's Team-wise
     view groups tasks by each assignee's reporting manager.
-17. **Task/Company/Department fields rarely set directly** — `Task.companyId`
+18. **Zoho CRM Leads sync (new)** — extends the Phase 5 Zoho integration
+    (Tasks module, above) to also sync the **Leads** module plus its Notes/
+    Calls/Events/Tasks/Emails activity feed, per a separate "Leads +
+    Reports" spec, plus the Reports UI (Dashboard/Lead-wise/Staff-wise) on
+    top of it. See the new "Zoho CRM Leads sync" section below for what was
+    actually built. Two decisions the spec flagged as needing client input
+    were confirmed rather than guessed: the funnel groups `Lead_Status`
+    into the 5-stage + dropped/other split recommended in `modules/
+    crmLeads/funnelStage.ts`, and "conversion rate" is same-period
+    (converted-in-period ÷ created-in-period), not cohort-within-N-days.
+    Remaining open items, flagged rather than guessed:
+    - **Field history tracking** on `Lead_Status`/`Owner` — whether it's
+      enabled for this org (Setup → Customization → Modules → Leads → Field
+      History Tracking) determines whether stage/owner history can ever be
+      backfilled before this feature's first sync, or only tracked going
+      forward. Not checked (not exposed by the Zoho CRM API surface used
+      here) — the sync behaves correctly either way, but a report showing
+      "no stage movement before <date>" should say why.
+    - **No webhooks** — same constraint noted for Zoho OAuth above (most
+      self-hosted deployments at this scale don't have a fixed public
+      callback URL). Leads sync polls on a schedule (`CRM_LEADS_SYNC_CRON_
+      SCHEDULE`, default every 15 min), matching the existing Tasks sync's
+      approach rather than the spec's "prefer webhooks" as a first choice.
+    - **Emails related list** — `Leads/{id}/Emails` has no `href` in this
+      org's Get Related Lists response (unlike Notes/Calls/Events/Tasks).
+      The sync still attempts it and degrades gracefully (logs a warning
+      once, continues without Email activities) if the org/edition rejects
+      the call — not confirmed either way against a real sync run yet (no
+      live Zoho credentials were available in the environment this was
+      built in; see "Not covered here" below).
+    - **Activity-only changes can lag an incremental sync** — Zoho's
+      `Modified_Time` on a Lead doesn't reliably bump from a new child Note/
+      Call/etc. with no Lead field change, so the incremental poll (which
+      filters on `Modified_Time`) could miss that activity until something
+      else changes on the lead, or until the next full backfill. Not fixed
+      in this pass (would need a COQL query against `Last_Activity_Time` as
+      a second incremental cursor) — flagged rather than silently accepted.
+
+19. **CRM Leads Sync Admin UI** — the Admin → Zoho CRM tab now has a second
+    "Leads module" panel (connection status, lead count, last full backfill
+    / last incremental sync timestamps, sync log, "Run sync now" / "Run full
+    backfill" buttons) alongside the existing Tasks panel. No dedicated
+    Configuration UI beyond the new cron-schedule field — Leads sync reuses
+    the Tasks sync's Zoho OAuth credentials as-is. Separately, a new "CRM
+    Reports" nav item (visible to Admin/Manager/Team Lead, same audience as
+    the existing Reports page) hosts the Dashboard/Lead-wise/Staff-wise
+    Reports UI described in the next item.
+
+20. **Task/Company/Department fields rarely set directly** — `Task.companyId`
     /`departmentId` are optional columns the Task form never fills in; nearly
     all tasks only carry a department/company via their Project. Every new
     report/dashboard endpoint (grouped reports, rollups, Manager scoping,
@@ -331,6 +381,166 @@ Built in response to follow-up feedback, beyond the original phased spec:
   summary view rolls them up with task-hours vs. non-task-hours split. Both
   export to CSV.
 
+## Zoho CRM Leads sync (added post-Phase-6, data layer only)
+
+Per a separate "Zoho CRM Leads Integration + Reports Module" spec. Only the
+sync/data-model half is built so far (see "Known gaps" #18-19 above for what
+that spec's Reports UI still needs, and why it was deliberately deferred):
+
+- **`crm_leads`** — core Leads fields (owner, company, email, lead source/
+  status, conversion fields) plus a derived `funnelStage` and the full raw
+  Zoho payload in `rawData` (Leads has ~90 fields total; only a core set
+  gets a real column, so a future report reaching for a field that wasn't
+  anticipated here doesn't need a migration).
+- **`crm_lead_activity`** — unified Notes/Calls/Events/Tasks/Emails feed,
+  one row per Zoho activity record, deduped on re-sync.
+- **`crm_lead_stage_history`** / **`crm_lead_owner_history`** — populated by
+  diffing each incoming sync against what's currently stored; only tracks
+  changes from the moment this feature first ran (see Known gap #18 on
+  Zoho field history tracking for why no earlier history can be backfilled).
+- **`crm_sync_state`** — incremental-sync cursor (`Modified_Time`), unlike
+  the Tasks sync above which just re-fetches everything every run.
+- Sync runs via `modules/crmLeads/crmLeads.service.ts`, sharing the Tasks
+  sync's OAuth token cache (`modules/zoho/zoho.service.ts`). Incremental
+  sync polls on a schedule (Admin → Configuration, default every 15 min);
+  a full backfill is a separate Admin-triggered action (Admin → Zoho CRM →
+  Leads module → "Run full backfill").
+- **Reports UI** (Admin/Manager/Team Lead → "CRM Reports" nav item, same
+  audience as the existing Reports page): a Dashboard tab with 4 widgets
+  (assignment overview, latest activity feed, conversion rate — confirmed
+  same-period definition — and the stage-wise funnel with last-24h
+  movement), plus Lead-wise and Staff-wise deep-dive tabs. All read-only
+  over `modules/crmLeads/crmLeadReports.service.ts`. Staff-wise defaults to
+  a per-staff overview table (leads owned, conversion rate, activities
+  logged, last activity) rather than forcing a person to be picked first —
+  clicking a row drills into that person's leads, as one table (lead,
+  stage, assigned date, latest activity folded into the same row) rather
+  than a second separate activity-feed panel next to it. Staff-wise (and
+  every other staff-level filter/grouping in CRM Reports) is keyed by
+  `staffName` — the client's custom "Staff Name" picklist field on the Lead
+  (Zoho API name `Staff_Name`), **not** the standard `Owner` field. Client
+  direction, added after `ownerName` initially: in this org Owner doesn't
+  reliably track who's actually working a lead, so a dedicated field was
+  added in Zoho for it (mirroring the same pattern already used on the Zoho
+  Tasks module — see `modules/zoho/zoho.service.ts`'s `Staff_Name` handling).
+  `ownerName` is still synced and still shown as "Owner" on the Lead-wise
+  detail page, purely informational, alongside the new "Staff" field.
+  Zoho tracks no change history for Staff Name (unlike Owner), so there's no
+  staff equivalent of `ownerHistory`/"assigned date" — Staff-wise's per-lead
+  "Assigned" column falls back to the lead's creation date.
+- **Lead-wise → Activity timeline** — the Stage History/Owner History/
+  Activity Feed three-panel layout was replaced with a single chronological
+  timeline merging every touch on a lead (Notes/Calls/Events/Tasks/Emails,
+  plus stage changes and owner reassignments), oldest first, each entry
+  showing its type, status, due date (for tasks), and who did it. The
+  activity-type dropdown filters to just that kind of activity and, since a
+  type filter should mean exactly what it says, also hides the stage/owner
+  change entries while active. Backed by `getLeadDetail`'s merged `timeline`
+  array (`crmLeadReports.service.ts`), rendered in `LeadWiseSection.tsx`.
+- **Global date + staff filter** — a shared filter bar at the top of every
+  CRM Reports tab (`?cutoffOn=&cutoffDate=&cutoffDateTo=&staffFilter=` in the
+  URL, date-from default on / 2026-08-01): a from/to date range narrowing to
+  leads created in that window, plus a staff dropdown (options from
+  `GET /crm-lead-reports/staff`) narrowing to one person. Applied uniformly
+  via `createdSince`/`createdBefore`/`staffName` on every service function
+  (`ReportFilters` in `crmLeadReports.service.ts`); a specifically-selected
+  lead's own detail page ignores the date range (you explicitly asked to see
+  that one). The staff filter matches differently depending on what's being
+  measured: lead-level data (Assignment Overview, Conversion Rate,
+  Stage-wise, Kanban, Closure Report's deals) matches the lead's own
+  `staffName` field, while activity-level data (Activity Feed, Daily Report,
+  Closure Report's activities) matches `actorName` — who actually performed
+  that piece of work, which can genuinely differ from who the lead is
+  staffed to.
+  Closure Report doesn't get the date-range half of the bar (its own
+  day/week/month toggle already scopes time).
+- **Kanban view** — Dashboard, Lead-wise, and Staff-wise each have a
+  List/Widgets ↔ Kanban toggle grouping leads into columns by funnel stage
+  (`CrmReports/KanbanBoard.tsx`, backed by `GET /crm-lead-reports/kanban`).
+  Read-only by design (no drag-to-change-stage — stage is Zoho-sourced and
+  this sync is one-way). Every card links to that lead's Lead-wise report,
+  same as every other place a lead is shown.
+- **Dashboard → "By Staff" view** — a third Dashboard view (alongside
+  Widgets/Kanban): every lead grouped under a collapsible section per
+  `staffName` (name + count badge, click to expand a table of their leads — created
+  date, source, stage, phone, last activity), modeled on a grouped list
+  view from another in-house tool the client already uses.
+  (`CrmReports/GroupedByStaffList.tsx`, backed by `GET /crm-lead-reports/
+  dashboard/grouped-by-staff`.)
+- **Daily Report tab** — a fourth CRM Reports tab, meant to be pulled up as
+  one continuous sheet for the morning meeting: 4 pie charts + 4 tables
+  (Tasks completed yesterday, Calls that were supposed to happen yesterday,
+  Tasks due today, Calls today — who's assigned), scoped to CRM Leads/Calls
+  only per client confirmation (not the internal Task app). "Today"/
+  "yesterday" are anchored to Nepal local time (`Asia/Kathmandu`, UTC+5:45)
+  regardless of server timezone, and it deliberately ignores the
+  leads-since cutoff filter used everywhere else — today's work matters
+  regardless of how old the underlying lead is. The response is sent with
+  `Cache-Control: no-store` since "today" shifts by the hour. Required
+  adding `dueDate`/`status` columns to `crm_lead_activity` (not captured
+  before this), populated for TASK (Zoho's own `Due_Date`/`Status`) and
+  CALL (derived from which related list it came from — open "Calls" vs.
+  closed "Calls_History" — since Zoho's Calls related list has no clean
+  status field of its own).
+  - **Known simplification**: a yesterday's-call row shows status
+    "Completed" as soon as Zoho moves it to `Calls_History` — which also
+    happens for calls logged as cancelled/no-answer/etc., not only ones
+    that actually connected. The row's Subject text usually carries the
+    real outcome (e.g. "...cancelled"), so it's visible, just not treated
+    as a distinct "missed" state — only a call still sitting in the open
+    `Calls` list past its scheduled time counts as flagged-missed today.
+  `CrmReports/DailyReportSection.tsx`, backed by `GET /crm-lead-reports/daily`.
+- **Closure Report tab** — a fifth CRM Reports tab: a Day/Week/Month toggle
+  over a per-staff scoreboard of activities closed and deals converted.
+  "Closed" means a TASK or CALL activity with `status: "Completed"` in the
+  selected Nepal-time period, credited to `actorName`; "converted" means a
+  lead with `converted: true` and `convertedAt` in that period, credited to
+  the lead's `staffName` — deliberately two different credit rules, since
+  conversion is an outcome of the deal rather than of whichever staff member
+  happened to touch it last. `CrmReports/ClosureReportSection.tsx`, backed
+  by `getClosureReport` / `GET /crm-lead-reports/closure`.
+- **Owner → Staff Name migration (2026-09-10)**: the client added a custom
+  "Staff Name" picklist field directly in Zoho (Leads module, API name
+  `Staff_Name`) as the real field of record for lead assignment, and every
+  staff-level filter/grouping across CRM Reports was switched from `ownerName`
+  to this new `staffName` column (`crm_leads.staff_name`, migration
+  `20260910105032_add_lead_staff_name`). Because the field is brand new,
+  leads synced before this point have `staffName: null` until the next full
+  backfill re-pulls them — **run Admin → Zoho CRM → Leads module → "Run full
+  backfill" once** after deploying this change, or the Staff dropdown/every
+  staff-level report will look empty despite `ownerName`/activity data still
+  being present. Incremental sync alone won't backfill it, since Zoho doesn't
+  bump a Lead's `Modified_Time` just because a field was added to the schema.
+- `npm run seed:crm-leads-demo` (backend) populates ~40 fake leads/owners/
+  activities so this UI has something to show without real Zoho credentials
+  — local dev/demo only, mirrors `scripts/dev-db.mjs`'s role. (Removed from
+  the local dev DB after live verification against the real org — rerun the
+  script if you want it back for future dev work.)
+- **Fixed post-launch, found via live testing against the real org**:
+  (1) a converted Lead's Notes/Calls/Events/Tasks/Emails become unreachable
+  via the Lead endpoint at all (Zoho moves them to the resulting Account/
+  Contact/Deal) — was being logged as a sync failure for every converted
+  lead, now skipped cleanly; (2) the `Emails` related list returns a
+  completely different response shape than the other four (keyed by its own
+  name, not `data`, with lowercase field names and no `id` — `message_id`
+  is used instead) — was silently reading as empty for every lead, so no
+  email ever synced despite ~2-3 existing per lead in this org. Both are in
+  `modules/crmLeads/crmLeads.service.ts`.
+
+**Not covered here**: like the Tasks sync, no real Zoho sandbox credentials
+were available to run this end-to-end against live data — `prisma migrate
+dev` (schema/migration), `tsc --noEmit` (both backend and frontend), and a
+direct smoke test of the new tables/relations/upsert-dedup logic against a
+real local Postgres all passed, but an actual poll against Zoho's API,
+including whether the `Emails` related list responds the way `modules/
+crmLeads/crmLeads.service.ts` assumes, was not exercised. The Reports UI
+*was* exercised live in a browser (all three tabs, every dashboard widget)
+against `npm run seed:crm-leads-demo` fake data, including a follow-up pass
+to fix the Dashboard/Lead-wise/Staff-wise layouts, which originally grew
+tall enough (unbounded lists) that reaching the next widget meant scrolling
+past the current one's entire contents — every list/table is now a
+fixed-height card that scrolls internally instead.
+
 ## API overview
 
 All endpoints under `/api` except `/api/auth/login` require
@@ -369,6 +579,14 @@ All endpoints under `/api` except `/api/auth/login` require
 
 **Phase 5 — Zoho CRM sync**
 - `GET /api/admin/zoho/status`, `GET /api/admin/zoho/sync-log`, `POST /api/admin/zoho/sync` (Admin only)
+- `GET /api/admin/crm-leads/status`, `GET /api/admin/crm-leads/sync-log`, `POST /api/admin/crm-leads/sync` (`?full=true` for a full backfill instead of incremental) (Admin only)
+- `GET /api/crm-lead-reports/dashboard/{assignment-overview,activity-feed,conversion-rate,stage-wise}` — CRM Reports Dashboard tab widgets (Admin/Manager/Team Lead); all accept `?createdSince=&createdBefore=&staffName=`
+- `GET /api/crm-lead-reports/kanban` — leads grouped by funnel stage (`?staffName=` scopes to one staff member, used by Staff-wise); shared by the Dashboard/Lead-wise/Staff-wise Kanban views
+- `GET /api/crm-lead-reports/dashboard/grouped-by-staff` — every lead grouped by owner, for the Dashboard's "By Staff" view
+- `GET /api/crm-lead-reports/leads`, `GET /api/crm-lead-reports/leads/:id` — Lead-wise tab (selector + merged activity timeline, `?type=` filters to one activity type and hides stage/owner-change entries)
+- `GET /api/crm-lead-reports/staff` — Staff-wise tab's default overview (leads owned, conversion rate, activities logged, last activity per `staffName` — no one needs to be selected first), `GET /api/crm-lead-reports/staff/:staffName` for the drill-down detail (path segment is the Staff Name field's value, URL-encoded — not Owner)
+- `GET /api/crm-lead-reports/daily` — Daily Report tab (tasks completed yesterday, tasks due today, calls today by staff — Nepal-time day boundaries, ignores the date-range filter; accepts `?staffName=`, matched against `actorName`)
+- `GET /api/crm-lead-reports/closure?period=day|week|month` — Closure Report tab (activities closed + deals converted per staff, Nepal-time period bounds; accepts `?staffName=`)
 
 **Phase 6 — admin & audit**
 - `GET /api/admin/audit-log`

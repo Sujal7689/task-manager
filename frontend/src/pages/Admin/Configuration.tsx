@@ -14,6 +14,8 @@ interface ConfigResponse {
   zohoApiBaseUrl: string;
   notificationCronSchedule: string;
   weeklyReportCronSchedule: string;
+  crmLeadsSyncCronSchedule: string;
+  crmLeadsBackfillCronSchedule: string;
   overrides: Record<string, boolean>;
 }
 
@@ -42,6 +44,8 @@ export default function Configuration() {
 
   const [notificationCronSchedule, setNotificationCronSchedule] = useState("");
   const [weeklyReportCronSchedule, setWeeklyReportCronSchedule] = useState("");
+  const [crmLeadsSyncCronSchedule, setCrmLeadsSyncCronSchedule] = useState("");
+  const [crmLeadsBackfillCronSchedule, setCrmLeadsBackfillCronSchedule] = useState("");
 
   function refresh() {
     api.get<ConfigResponse>("/admin/config").then((res) => {
@@ -56,6 +60,8 @@ export default function Configuration() {
       setZohoApiBaseUrl(c.zohoApiBaseUrl);
       setNotificationCronSchedule(c.notificationCronSchedule);
       setWeeklyReportCronSchedule(c.weeklyReportCronSchedule);
+      setCrmLeadsSyncCronSchedule(c.crmLeadsSyncCronSchedule);
+      setCrmLeadsBackfillCronSchedule(c.crmLeadsBackfillCronSchedule);
     });
   }
   useEffect(refresh, []);
@@ -124,8 +130,13 @@ export default function Configuration() {
     e.preventDefault();
     if (!config) return;
     const changed = changedOnly(
-      { notificationCronSchedule, weeklyReportCronSchedule },
-      { notificationCronSchedule: config.notificationCronSchedule, weeklyReportCronSchedule: config.weeklyReportCronSchedule },
+      { notificationCronSchedule, weeklyReportCronSchedule, crmLeadsSyncCronSchedule, crmLeadsBackfillCronSchedule },
+      {
+        notificationCronSchedule: config.notificationCronSchedule,
+        weeklyReportCronSchedule: config.weeklyReportCronSchedule,
+        crmLeadsSyncCronSchedule: config.crmLeadsSyncCronSchedule,
+        crmLeadsBackfillCronSchedule: config.crmLeadsBackfillCronSchedule,
+      },
     );
     await save("schedules", changed);
   }
@@ -230,6 +241,20 @@ export default function Configuration() {
             onChange={setWeeklyReportCronSchedule}
             overridden={config.overrides.weeklyReportCronSchedule}
             placeholder="0 8 * * 1"
+          />
+          <ConfigField
+            label="CRM Leads incremental sync"
+            value={crmLeadsSyncCronSchedule}
+            onChange={setCrmLeadsSyncCronSchedule}
+            overridden={config.overrides.crmLeadsSyncCronSchedule}
+            placeholder="*/15 * * * *"
+          />
+          <ConfigField
+            label="CRM Leads full backfill"
+            value={crmLeadsBackfillCronSchedule}
+            onChange={setCrmLeadsBackfillCronSchedule}
+            overridden={config.overrides.crmLeadsBackfillCronSchedule}
+            placeholder="0 * * * *"
           />
           <button type="submit" disabled={saving} className="sm:col-span-2 bg-slate-900 text-white rounded-lg py-2 px-4 text-sm font-medium w-fit disabled:opacity-50">
             {saving ? "Saving..." : "Save schedules"}
