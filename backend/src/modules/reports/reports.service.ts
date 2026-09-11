@@ -282,6 +282,109 @@ export async function staffPerformanceReport(userId: string, months = 6) {
   return trend;
 }
 
+// 3b. Staff Task Activity Report — the KPI Report's date-range drill-down:
+// "click a name, see their tasks for that period and what got updated on
+// them." Deliberately mirrors getKpiReport's own per-task classification
+// (kpi.service.ts) — same completedInPeriod/stillOpenAtPeriodEnd/overdue
+// logic — so the task list shown here is exactly the set of tasks that
+// produced the KPI numbers directly above it, not a separately-defined
+// "tasks touched this week" query that could disagree with them.
+export interface StaffTaskActivityRow {
+  taskId: string;
+  taskNumber: string;
+  name: string;
+  status: TaskStatus;
+  dueDate: Date | null;
+  closedAt: Date | null;
+  percentComplete: number;
+  project: string | null;
+  // Which KPI bucket this task falls into for the requested period — same
+  // three buckets getKpiReport reports counts for (completed/overdue/pending).
+  relation: "completed" | "overdue" | "pending";
+  activities: {
+    id: string;
+    name: string | null;
+    activityType: string;
+    status: string | null;
+    activityDate: Date;
+    workingHours: number;
+    feedback: string | null;
+    loggedBy: { id: string; name: string };
+  }[];
+}
+
+export async function staffTaskActivityReport(userId: string, from: Date, to: Date): Promise<StaffTaskActivityRow[]> {
+  const tasks = await prisma.task.findMany({
+    where: { ...topLevelTaskFilter, assignees: { some: { userId } } },
+    select: {
+      id: true,
+      taskNumber: true,
+      name: true,
+      status: true,
+      dueDate: true,
+      closedAt: true,
+      percentComplete: true,
+      project: { select: { name: true } },
+    },
+  });
+
+  // Same boundary as getKpiReport: `to` is used as-is for the closedAt cutoff,
+  // and separately normalized to start-of-day for the overdue-vs-pending split.
+  const periodEndStartOfDay = new Date(to);
+  periodEndStartOfDay.setHours(0, 0, 0, 0);
+
+  const relevant = tasks.flatMap((t) => {
+    const completedInPeriod = t.status === "COMPLETED" && !!t.closedAt && t.closedAt >= from && t.closedAt <= to;
+    const completedByPeriodEnd = t.status === "COMPLETED" && !!t.closedAt && t.closedAt <= to;
+    const stillOpenAtPeriodEnd = t.status !== "CANCELLED" && !completedByPeriodEnd;
+    if (!completedInPeriod && !stillOpenAtPeriodEnd) return [];
+    const relation: StaffTaskActivityRow["relation"] = completedInPeriod
+      ? "completed"
+      : t.dueDate && t.dueDate < periodEndStartOfDay
+        ? "overdue"
+        : "pending";
+    return [{ ...t, relation }];
+  });
+
+  const activityLogs = relevant.length
+    ? await prisma.activityLog.findMany({
+        where: { taskId: { in: relevant.map((t) => t.id) }, activityDate: { gte: from, lte: to } },
+        include: { loggedBy: { select: { id: true, name: true } } },
+        orderBy: { activityDate: "desc" },
+      })
+    : [];
+  const activitiesByTask = new Map<string, typeof activityLogs>();
+  for (const log of activityLogs) {
+    const list = activitiesByTask.get(log.taskId) ?? [];
+    list.push(log);
+    activitiesByTask.set(log.taskId, list);
+  }
+
+  return relevant
+    .map((t) => ({
+      taskId: t.id,
+      taskNumber: t.taskNumber,
+      name: t.name,
+      status: t.status,
+      dueDate: t.dueDate,
+      closedAt: t.closedAt,
+      percentComplete: t.percentComplete,
+      project: t.project?.name ?? null,
+      relation: t.relation,
+      activities: (activitiesByTask.get(t.id) ?? []).map((a) => ({
+        id: a.id,
+        name: a.name,
+        activityType: a.activityType,
+        status: a.status,
+        activityDate: a.activityDate,
+        workingHours: Number(a.workingHours),
+        feedback: a.feedback,
+        loggedBy: a.loggedBy,
+      })),
+    }))
+    .sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0));
+}
+
 // 4. Staff Timesheet Report — daily entries with task vs non-task split.
 export async function staffTimesheetReport(userId: string, from: string, to: string) {
   const entries = await prisma.timesheetEntry.findMany({

@@ -362,6 +362,21 @@ Built in response to follow-up feedback, beyond the original phased spec:
   total tasks, completed on time, KPI score, efficiency, feedback quality,
   and an 8-week workload trend sparkline. Scoped like the main dashboard
   (Manager = department, Team Lead = direct reports, Admin = everyone).
+  - **Audited (2026-09-11), no bug found**: every team-scoped surface in the
+    app (this dashboard, the Member-wise KPI widget, KPI Report, Task Report's
+    "team" groupBy, Team Timesheet) already consistently uses the same
+    `reportingManagerId`-based helpers (`getDirectReportIds`/
+    `getVisibleMemberIds` in `users.service.ts`) — verified live against real
+    role logins, not just read from the code. "Team Dashboard only shows
+    individual data" in practice is a **data-configuration symptom, not a code
+    bug**: it collapses to one card whenever a Manager/Team Lead's direct
+    reports aren't set (nobody's `reportingManagerId` points at them), since
+    "team" has no separate entity — see the decision note above. Since this
+    was invisible before, Admin → Users now shows each Manager/Team Lead's
+    direct-report count inline (flagged amber at 0 — "their team views will
+    look empty") and the Reporting Manager picker (`UserManagement.tsx`) is
+    restricted to Manager/Team Lead accounts, so it can't be silently
+    misconfigured to a Staff account going forward.
 - **Central Leadership Dashboard** (`/leadership`, Admin only) — all
   companies combined, top performers, bottlenecks (highest overdue rate by
   department), milestone delays, project delays, and an org-wide efficiency
@@ -380,6 +395,27 @@ Built in response to follow-up feedback, beyond the original phased spec:
   range, and entry type. The detail view is the individual log entries; the
   summary view rolls them up with task-hours vs. non-task-hours split. Both
   export to CSV.
+- **KPI Report → date-range task/activity drill-down** (`KpiReportSection.tsx`,
+  Reports page): click an employee's row to expand, in place, exactly the
+  tasks that fed into that row's assigned/completed/overdue/pending counts
+  for whichever period the page's own date filter currently has selected
+  (daily/weekly/monthly/quarterly/custom — same `from`/`to` sent to the row
+  data itself), each shown with its activity-log updates (type, status,
+  hours, who logged it, feedback) within that same range — "why is my KPI
+  score X" answered one click away, without navigating off the page or
+  losing the active filters. Backed by `getStaffTaskActivityReport`
+  (`reports.service.ts`), which deliberately reuses `getKpiReport`'s own
+  per-task completed/overdue/pending classification rather than a
+  separately-defined "tasks touched this period" query, so the drill-down
+  can never disagree with the numbers in the row above it.
+  - **Found and fixed in passing**: `GET /reports/staff-performance` and
+    `/staff-timesheet` had no ownership check on their `?userId=` param —
+    any authenticated user (including Staff) could read any other user's KPI
+    trend or full timesheet just by passing their id. Fixed by checking the
+    target id against `getVisibleMemberIds` (the same visibility rule every
+    other team-scoped report already uses) whenever `userId` isn't the
+    caller's own — self-view still needs no elevated role, viewing someone
+    else now 403s unless the caller actually has visibility over them.
 
 ## Zoho CRM Leads sync (added post-Phase-6, data layer only)
 
@@ -594,7 +630,8 @@ All endpoints under `/api` except `/api/auth/login` require
 **Phase 4 — KPI, leaderboard, reports**
 - `GET/PUT /api/kpi/weights`
 - `GET /api/leaderboard?period=WEEKLY|MONTHLY|QUARTERLY`
-- `GET /api/reports/{task-detail,task-summary,staff-performance,staff-timesheet,overdue,department-rollup,leaderboard-export}` (add `?format=csv` where supported)
+- `GET /api/reports/{task-detail,task-summary,staff-performance,staff-timesheet,overdue,department-rollup,leaderboard-export}` (add `?format=csv` where supported). `staff-performance`/`staff-timesheet`/`staff-task-activity` accept an optional `?userId=` (defaults to the caller's own id); requesting someone else's requires the caller to actually have visibility over them (`getVisibleMemberIds`, same rule as every other team-scoped report) or it 403s — previously unchecked (any authenticated user, including Staff, could read anyone else's KPI/timesheet by id).
+- `GET /api/reports/staff-task-activity?userId=&from=&to=` — the KPI Report's date-range drill-down: exactly the tasks that fed into that person's assigned/completed/overdue/pending counts for the given range (same per-task classification as `getKpiReport`), each with its activity-log entries logged within that range. Backs the click-to-expand row in `KpiReportSection.tsx` — clicking an employee re-fetches this with whatever `from`/`to` the page's own date filter currently has selected.
 - `GET /api/reports/grouped?groupBy=employee|team|project|company|department` (+ `from`/`to`/`companyId`/`departmentId`/`projectId`/`employeeId`/`status`/`format`)
 - `GET /api/reports/timesheet-summary?groupBy=employee|task|project|department`, `GET /api/reports/timesheet-detail` (+ `employeeId`/`taskId`/`projectId`/`departmentId`/`companyId`/`from`/`to`/`entryType`/`format`)
 

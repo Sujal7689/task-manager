@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { Company, Department, Milestone, Project, User } from "../../types";
 import {
@@ -24,6 +24,36 @@ interface KpiReportRow {
   onTimePct: number;
   qualityScore: number;
   kpiScore: number;
+}
+
+interface StaffTaskActivity {
+  id: string;
+  name: string | null;
+  activityType: string;
+  status: string | null;
+  activityDate: string;
+  workingHours: number;
+  feedback: string | null;
+  loggedBy: { id: string; name: string };
+}
+
+interface StaffTaskActivityRow {
+  taskId: string;
+  taskNumber: string;
+  name: string;
+  status: string;
+  dueDate: string | null;
+  closedAt: string | null;
+  percentComplete: number;
+  project: string | null;
+  relation: "completed" | "overdue" | "pending";
+  activities: StaffTaskActivity[];
+}
+
+function relationBadgeClass(relation: StaffTaskActivityRow["relation"]) {
+  if (relation === "completed") return "bg-emerald-50 text-emerald-700";
+  if (relation === "overdue") return "bg-red-50 text-red-700";
+  return "bg-amber-50 text-amber-700";
 }
 
 function scoreColor(score: number) {
@@ -63,6 +93,9 @@ export default function KpiReportSection() {
   const [users, setUsers] = useState<User[]>([]);
   const [rows, setRows] = useState<KpiReportRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [drillDown, setDrillDown] = useState<StaffTaskActivityRow[] | null>(null);
+  const [drillDownLoading, setDrillDownLoading] = useState(false);
 
   useEffect(() => {
     api.get<Company[]>("/companies").then((res) => setCompanies(res.data));
@@ -97,6 +130,11 @@ export default function KpiReportSection() {
 
   function refresh() {
     setLoading(true);
+    // The period/filters just changed — a drill-down open for the old range
+    // would be showing stale tasks/activities, so collapse it rather than
+    // leave it silently out of sync with the table above it.
+    setExpandedUserId(null);
+    setDrillDown(null);
     api
       .get<KpiReportRow[]>("/reports/kpi-report", { params: filterParams })
       .then((res) => setRows(res.data))
@@ -107,6 +145,24 @@ export default function KpiReportSection() {
 
   function clearFilters() {
     setCompanyId(""); setDepartmentId(""); setProjectId(""); setMilestoneId(""); setEmployeeId("");
+  }
+
+  // Click a row: fetch that person's tasks + activity updates for the exact
+  // date range currently shown above (from/to), so "why is my KPI X" has a
+  // concrete answer one click away.
+  function toggleDrillDown(userId: string) {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+      setDrillDown(null);
+      return;
+    }
+    setExpandedUserId(userId);
+    setDrillDown(null);
+    setDrillDownLoading(true);
+    api
+      .get<StaffTaskActivityRow[]>("/reports/staff-task-activity", { params: { userId, from, to } })
+      .then((res) => setDrillDown(res.data))
+      .finally(() => setDrillDownLoading(false));
   }
 
   const totals = rows.reduce(
@@ -264,24 +320,104 @@ export default function KpiReportSection() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.userId} className="border-b border-slate-50 last:border-0">
-                <td className="px-4 py-2 font-medium text-slate-900">{r.name}</td>
-                <td className="px-4 py-2 text-slate-600">{r.department ?? "—"}</td>
-                <td className="px-4 py-2 text-right text-slate-600">{r.assigned}</td>
-                <td className="px-4 py-2 text-right text-slate-600">{r.completed}</td>
-                <td className={`px-4 py-2 text-right ${r.overdue > 0 ? "text-red-600" : "text-slate-600"}`}>{r.overdue}</td>
-                <td className="px-4 py-2 text-right text-slate-600">{r.pending}</td>
-                <td className="px-4 py-2 text-right text-slate-600">{r.hoursLogged.toFixed(1)}</td>
-                <td className="px-4 py-2 text-right text-slate-600">{r.onTimePct}%</td>
-                <td className="px-4 py-2 text-right text-slate-600">{r.qualityScore}%</td>
-                <td className={`px-4 py-2 text-right font-semibold ${scoreColor(r.kpiScore)}`}>{r.kpiScore}</td>
-              </tr>
+              <Fragment key={r.userId}>
+                <tr
+                  onClick={() => toggleDrillDown(r.userId)}
+                  className={`border-b border-slate-50 last:border-0 cursor-pointer hover:bg-slate-50 ${expandedUserId === r.userId ? "bg-slate-50" : ""}`}
+                >
+                  <td className="px-4 py-2 font-medium text-slate-900">
+                    <span className="text-slate-300 mr-1">{expandedUserId === r.userId ? "▾" : "▸"}</span>
+                    {r.name}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">{r.department ?? "—"}</td>
+                  <td className="px-4 py-2 text-right text-slate-600">{r.assigned}</td>
+                  <td className="px-4 py-2 text-right text-slate-600">{r.completed}</td>
+                  <td className={`px-4 py-2 text-right ${r.overdue > 0 ? "text-red-600" : "text-slate-600"}`}>{r.overdue}</td>
+                  <td className="px-4 py-2 text-right text-slate-600">{r.pending}</td>
+                  <td className="px-4 py-2 text-right text-slate-600">{r.hoursLogged.toFixed(1)}</td>
+                  <td className="px-4 py-2 text-right text-slate-600">{r.onTimePct}%</td>
+                  <td className="px-4 py-2 text-right text-slate-600">{r.qualityScore}%</td>
+                  <td className={`px-4 py-2 text-right font-semibold ${scoreColor(r.kpiScore)}`}>{r.kpiScore}</td>
+                </tr>
+                {expandedUserId === r.userId && (
+                  <tr>
+                    <td colSpan={10} className="bg-slate-50 px-4 py-4">
+                      <StaffDrillDown loading={drillDownLoading} rows={drillDown} from={from} to={to} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
         {!loading && rows.length === 0 && <p className="px-4 py-6 text-sm text-slate-400">No data for this filter combination.</p>}
         {loading && <p className="px-4 py-6 text-sm text-slate-400">Loading...</p>}
       </div>
+    </div>
+  );
+}
+
+// The KPI Report row's drill-down: exactly the tasks that fed into that
+// row's assigned/completed/overdue/pending counts for this same date range,
+// each with its activity-log updates within that range — "why is my KPI X."
+function StaffDrillDown({
+  loading,
+  rows,
+  from,
+  to,
+}: {
+  loading: boolean;
+  rows: StaffTaskActivityRow[] | null;
+  from: string;
+  to: string;
+}) {
+  if (loading) return <p className="text-sm text-slate-400">Loading tasks…</p>;
+  if (!rows || rows.length === 0) {
+    return (
+      <p className="text-sm text-slate-400">
+        No tasks were assigned, due, or completed between {new Date(`${from}T00:00:00`).toLocaleDateString()} and{" "}
+        {new Date(`${to}T00:00:00`).toLocaleDateString()}.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {rows.map((t) => (
+        <div key={t.taskId} className="bg-white border border-slate-200 rounded-lg p-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">{t.taskNumber}</span>
+              <span className="font-medium text-slate-900 text-sm">{t.name}</span>
+              <span className={`text-xs px-1.5 py-0.5 rounded ${relationBadgeClass(t.relation)}`}>{t.relation}</span>
+            </div>
+            <span className="text-xs text-slate-400">
+              {t.project ?? "No project"} · {t.percentComplete}% complete
+              {t.dueDate && ` · due ${new Date(t.dueDate).toLocaleDateString()}`}
+              {t.closedAt && ` · closed ${new Date(t.closedAt).toLocaleDateString()}`}
+            </span>
+          </div>
+
+          {t.activities.length === 0 ? (
+            <p className="text-xs text-slate-400 mt-2">No activity logged on this task in this period.</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5 border-t border-slate-100 pt-2">
+              {t.activities.map((a) => (
+                <li key={a.id} className="text-xs text-slate-600 flex items-start gap-2">
+                  <span className="text-slate-400 shrink-0 w-24">{new Date(a.activityDate).toLocaleDateString()}</span>
+                  <span className="shrink-0 font-medium text-slate-700">{a.activityType}</span>
+                  {a.status && <span className="shrink-0 text-slate-400">({a.status})</span>}
+                  <span className="flex-1">
+                    {a.name ?? a.feedback ?? "—"}
+                    {a.workingHours > 0 && <span className="text-slate-400"> · {a.workingHours}h</span>}
+                  </span>
+                  <span className="shrink-0 text-slate-400">{a.loggedBy.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
     </div>
   );
 }

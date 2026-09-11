@@ -3,6 +3,8 @@ import { z } from "zod";
 import { Priority, TaskStatus, TimesheetEntryType } from "@prisma/client";
 import * as service from "./reports.service";
 import * as kpiService from "../kpi/kpi.service";
+import { getVisibleMemberIds } from "../users/users.service";
+import { AppError } from "../../utils/appError";
 import { toCsv } from "../../utils/csv";
 import { parsePagination, toPaginated } from "../../utils/pagination";
 
@@ -119,8 +121,25 @@ export async function taskSummaryHandler(req: Request, res: Response) {
   res.json(await service.taskSummaryReport(req.user!, filters));
 }
 
+// Anyone can view their own performance/timesheet — but viewing SOMEONE
+// ELSE'S requires the requester to actually have visibility over that
+// person (Admin=all, Manager=org-wide staff/TL, Team Lead=direct reports),
+// same rule as every other team-scoped report. Previously unchecked: any
+// authenticated user (including Staff) could pass `?userId=<anyone>` and
+// read that person's KPI trend or full timesheet — fixed here rather than
+// route-gating with `managerUp`, since that would also block a Staff
+// member's legitimate self-view.
+async function assertCanViewUser(requester: Request["user"], userId: string) {
+  if (userId === requester!.id) return;
+  const visibleIds = await getVisibleMemberIds(requester!);
+  if (!visibleIds.includes(userId)) {
+    throw new AppError(403, "Insufficient permissions to view this user's data");
+  }
+}
+
 export async function staffPerformanceHandler(req: Request, res: Response) {
   const userId = (req.query.userId as string) ?? req.user!.id;
+  await assertCanViewUser(req.user, userId);
   const months = req.query.months ? Number(req.query.months) : 6;
   res.json(await service.staffPerformanceReport(userId, months));
 }
@@ -128,7 +147,15 @@ export async function staffPerformanceHandler(req: Request, res: Response) {
 export async function staffTimesheetHandler(req: Request, res: Response) {
   const { from, to } = z.object({ from: z.string(), to: z.string() }).parse(req.query);
   const userId = (req.query.userId as string) ?? req.user!.id;
+  await assertCanViewUser(req.user, userId);
   res.json(await service.staffTimesheetReport(userId, from, to));
+}
+
+export async function staffTaskActivityHandler(req: Request, res: Response) {
+  const { from, to } = z.object({ from: z.string(), to: z.string() }).parse(req.query);
+  const userId = (req.query.userId as string) ?? req.user!.id;
+  await assertCanViewUser(req.user, userId);
+  res.json(await service.staffTaskActivityReport(userId, new Date(from), new Date(to)));
 }
 
 export async function overdueHandler(req: Request, res: Response) {

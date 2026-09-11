@@ -60,6 +60,23 @@ export default function UserManagement() {
     api.get<User[]>("/users").then((res) => setAllUsers(res.data));
   }
 
+  // Every "team" surface in the app (Team Dashboard, KPI Report, Task Report's
+  // team groupBy, Team Timesheet) derives "who's on this person's team"
+  // entirely from reportingManagerId — there's no separate Team entity. Only
+  // a Manager or Team Lead makes sense as someone's reporting manager in that
+  // model, so the picker is restricted to those roles rather than listing
+  // everyone (a Staff member "managing" another Staff member silently breaks
+  // every team-scoped report). Direct-report counts below make a Team
+  // Lead/Manager with zero reports (which makes their team views look empty)
+  // visible at a glance instead of a silent misconfiguration.
+  const reportingManagerCandidates = allUsers.filter((u) => u.role === "MANAGER" || u.role === "TEAM_LEAD");
+  const directReportCounts = new Map<string, number>();
+  for (const u of allUsers) {
+    if (!u.reportingManagerId) continue;
+    directReportCounts.set(u.reportingManagerId, (directReportCounts.get(u.reportingManagerId) ?? 0) + 1);
+  }
+  const managerNameById = new Map(allUsers.map((u) => [u.id, u.name]));
+
   useEffect(refresh, [page, search]);
 
   function handleSearchChange(value: string) {
@@ -183,7 +200,7 @@ export default function UserManagement() {
           </select>
           <select value={reportingManagerId} onChange={(e) => setReportingManagerId(e.target.value)} className="input">
             <option value="">Reporting Manager (optional)</option>
-            {allUsers.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            {reportingManagerCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
           </select>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={isFallback} onChange={(e) => setIsFallback(e.target.checked)} />
@@ -231,7 +248,7 @@ export default function UserManagement() {
                 </select>
                 <select value={editing.reportingManagerId} onChange={(e) => setEditing({ ...editing, reportingManagerId: e.target.value })} className="input">
                   <option value="">No reporting manager</option>
-                  {allUsers.filter((u2) => u2.id !== u.id).map((u2) => <option key={u2.id} value={u2.id}>{u2.name}</option>)}
+                  {reportingManagerCandidates.filter((u2) => u2.id !== u.id).map((u2) => <option key={u2.id} value={u2.id}>{u2.name} ({u2.role})</option>)}
                 </select>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -252,7 +269,19 @@ export default function UserManagement() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-slate-900">{u.name} {u.isZohoFallbackAssignee && <span className="text-xs text-amber-600 ml-1">(Zoho fallback)</span>}</p>
-                  <p className="text-xs text-slate-500">{u.email} · {u.role}</p>
+                  <p className="text-xs text-slate-500">
+                    {u.email} · {u.role}
+                    {u.reportingManagerId && <> · Reports to {managerNameById.get(u.reportingManagerId) ?? "—"}</>}
+                    {(u.role === "MANAGER" || u.role === "TEAM_LEAD") && (
+                      <>
+                        {" · "}
+                        <span className={(directReportCounts.get(u.id) ?? 0) === 0 ? "text-amber-600 font-medium" : ""}>
+                          {directReportCounts.get(u.id) ?? 0} direct report{(directReportCounts.get(u.id) ?? 0) === 1 ? "" : "s"}
+                          {(directReportCounts.get(u.id) ?? 0) === 0 && " — their team views will look empty"}
+                        </span>
+                      </>
+                    )}
+                  </p>
                 </div>
                 <div className="flex items-center gap-3">
                   <button onClick={() => startEdit(u)} className="text-xs font-medium text-slate-500 hover:text-slate-900">Edit</button>

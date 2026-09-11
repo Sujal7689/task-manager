@@ -16,6 +16,9 @@ router.get("/task-detail", managerUp, asyncHandler(controller.taskDetailHandler)
 router.get("/task-summary", managerUp, asyncHandler(controller.taskSummaryHandler));
 router.get("/staff-performance", asyncHandler(controller.staffPerformanceHandler));
 router.get("/staff-timesheet", asyncHandler(controller.staffTimesheetHandler));
+// Not `managerUp` — self-view must stay allowed; ownership is checked inside
+// the handler (assertCanViewUser) for anyone requesting someone else's data.
+router.get("/staff-task-activity", asyncHandler(controller.staffTaskActivityHandler));
 router.get("/overdue", managerUp, asyncHandler(controller.overdueHandler));
 router.get("/department-rollup", requireRole(Role.ADMIN), asyncHandler(controller.departmentRollupHandler));
 router.get("/leaderboard-export", managerUp, asyncHandler(controller.leaderboardExportHandler));
