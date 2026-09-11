@@ -405,8 +405,9 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   sync polls on a schedule (Admin → Configuration, default every 15 min);
   a full backfill is a separate Admin-triggered action (Admin → Zoho CRM →
   Leads module → "Run full backfill").
-- **Reports UI** (Admin/Manager/Team Lead → "CRM Reports" nav item, same
-  audience as the existing Reports page): a Dashboard tab with 4 widgets
+- **Reports UI** (Admin/Manager/Team Lead/Staff → "CRM Reports" nav item —
+  Staff included as of the role-scoping change below, unlike the existing
+  Reports page's audience): a Dashboard tab with 4 widgets
   (assignment overview, latest activity feed, conversion rate — confirmed
   same-period definition — and the stage-wise funnel with last-24h
   movement), plus Lead-wise and Staff-wise deep-dive tabs. All read-only
@@ -511,6 +512,30 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   staff-level report will look empty despite `ownerName`/activity data still
   being present. Incremental sync alone won't backfill it, since Zoho doesn't
   bump a Lead's `Modified_Time` just because a field was added to the schema.
+- **Role-based visibility scope (CRM Reports page only — does not change any
+  other module's role rules)**: Admin/Manager see the whole page
+  unrestricted; Team Lead sees only their own team; Staff sees only their
+  own reports. Staff is newly able to reach this page at all as of this
+  change (`crmLeadReports.routes.ts` now allows `Role.STAFF`, previously
+  Admin/Manager/Team Lead only) — the nav link (`Layout.tsx`'s
+  `crmReportsNavItem`) is shown to Staff too, unlike the other manager-only
+  report links. "Team" reuses the existing reportingManagerId-based direct-
+  reports rule (`users.service.ts`'s `getDirectReportIds`, the same one
+  Task/Timesheet/Attendance scoping already uses) — not a new convention.
+  The wrinkle: `CrmLead` has no FK to `User` at all, so
+  `getCrmStaffScope()` (`crmLeadReports.service.ts`) resolves the caller's
+  allowed `User` ids to their `name` values and matches against
+  `staffName`/`actorName` as plain strings. This means **a Staff or Team
+  Lead user only sees CRM data if their app account's `name` exactly
+  matches a value in Zoho's Staff Name picklist** (e.g. a user named
+  exactly "Binay") — there's no id-based link, so a typo'd name or an
+  account named differently than the Zoho picklist value silently shows an
+  empty report rather than an error. Every list/detail endpoint fails
+  closed: a scoped requester who guesses a lead id or staff name outside
+  their scope gets 404, not partial or leaked data (verified by hand against
+  the real synced dataset — Staff/Team Lead see exactly their own/their
+  team's leads, Manager/Admin see everything, and direct id/name probing
+  outside scope 404s).
 - `npm run seed:crm-leads-demo` (backend) populates ~40 fake leads/owners/
   activities so this UI has something to show without real Zoho credentials
   — local dev/demo only, mirrors `scripts/dev-db.mjs`'s role. (Removed from

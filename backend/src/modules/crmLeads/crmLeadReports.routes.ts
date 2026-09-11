@@ -6,9 +6,12 @@ import { requireRole } from "../../middleware/role";
 import * as controller from "./crmLeadReports.controller";
 
 const router = Router();
-// Same audience as the existing Reports module (managers need this to see
-// their team's pipeline, not just Admin).
-router.use(requireAuth, requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD));
+// Staff now included (client direction) — access is gated here, but what
+// each role actually SEES is scoped per-request in the service layer
+// (getCrmStaffScope): Admin/Manager unrestricted, Team Lead their team,
+// Staff themselves only. This scoping is specific to the CRM Reports page —
+// it does not change any other module's role rules.
+router.use(requireAuth, requireRole(Role.ADMIN, Role.MANAGER, Role.TEAM_LEAD, Role.STAFF));
 
 router.get("/dashboard/assignment-overview", asyncHandler(controller.assignmentOverviewHandler));
 router.get("/dashboard/grouped-by-staff", asyncHandler(controller.groupedByStaffHandler));

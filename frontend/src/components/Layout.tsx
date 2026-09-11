@@ -17,8 +17,11 @@ const baseNavItems = [
 const managerNavItems = [
   { to: "/dashboard/team", label: "Team Dashboard" },
   { to: "/reports", label: "Reports" },
-  { to: "/crm-reports", label: "CRM Reports" },
 ];
+// CRM Reports is scoped per-role server-side (Admin/Manager: everything,
+// Team Lead: their team, Staff: themselves) — Staff gets the nav link too,
+// unlike the other manager-only items above.
+const crmReportsNavItem = { to: "/crm-reports", label: "CRM Reports" };
 const adminNavItems = [
   { to: "/leadership", label: "Leadership" },
   { to: "/admin", label: "Admin" },
@@ -42,9 +45,11 @@ export default function Layout() {
   }, []);
 
   const canSeeReports = user?.role === "ADMIN" || user?.role === "MANAGER" || user?.role === "TEAM_LEAD";
+  const canSeeCrmReports = canSeeReports || user?.role === "STAFF";
   const navItems = [
     ...baseNavItems,
     ...(canSeeReports ? managerNavItems : []),
+    ...(canSeeCrmReports ? [crmReportsNavItem] : []),
     ...(user?.role === "ADMIN" ? adminNavItems : []),
   ];
 

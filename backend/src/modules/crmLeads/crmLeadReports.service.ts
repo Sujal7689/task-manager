@@ -1,7 +1,8 @@
-import { CrmActivityType, Prisma } from "@prisma/client";
+import { CrmActivityType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
 import { FUNNEL_ORDER } from "./funnelStage";
+import { getDirectReportIds } from "../users/users.service";
 
 // ---------------------------------------------------------------------------
 // Leads + Reports spec, Section 5: landing page widgets + Lead-wise/Staff-wise
@@ -30,7 +31,53 @@ import { FUNNEL_ORDER } from "./funnelStage";
 // (Assignment Overview, Conversion Rate, Stage-wise, Kanban, Closure
 // Report's "deals converted"), it matches the lead's own `staffName`, since
 // that's a property of the lead, not of an individual action taken on it.
+//
+// -------------------- Role-based visibility scope --------------------
+// Client direction, CRM Reports page ONLY (does not change scoping anywhere
+// else in the app): Admin/Manager see everything; Team Lead sees only their
+// own team; Staff sees only their own reports. "Team" reuses the same
+// reportingManagerId-based direct-reports rule already used for Task/
+// Timesheet/Attendance scoping (users.service.ts's getDirectReportIds) —
+// not a new convention. The wrinkle is that CrmLead has no FK to User at
+// all: `staffName`/`actorName` are free-text values synced from Zoho's
+// Staff Name picklist. So scoping works by resolving the allowed User ids
+// to their `name` values and matching on that string — a fuzzy join (it
+// depends on the Zoho picklist value matching User.name exactly), not a
+// real foreign key. Good enough for report visibility; a mismatched name
+// would just make that person's data invisible to themselves, fail-closed
+// rather than fail-open.
 // ---------------------------------------------------------------------------
+
+export interface ScopedRequester {
+  id: string;
+  role: Role;
+}
+
+export async function getCrmStaffScope(user: ScopedRequester): Promise<string[] | null> {
+  if (user.role === Role.ADMIN || user.role === Role.MANAGER) return null; // unrestricted
+  const ids = user.role === Role.TEAM_LEAD ? [...(await getDirectReportIds(user.id)), user.id] : [user.id];
+  const rows = await prisma.user.findMany({ where: { id: { in: ids } }, select: { name: true } });
+  return rows.map((r) => r.name);
+}
+
+// Combines a free-text staff filter selection with the requester's role-based
+// scope: `scope: null` = unrestricted (plain equality, or no filter at all).
+// A requested name outside the caller's scope resolves to `{ in: [] }` —
+// fails closed (matches no rows) instead of silently ignoring the boundary.
+function scopedNameFilter(requested: string | undefined, scope: string[] | null | undefined): string | { in: string[] } | undefined {
+  if (!scope) return requested;
+  if (requested) return scope.includes(requested) ? requested : { in: [] };
+  return { in: scope };
+}
+
+// Same combinator for the raw-SQL conversion-rate query.
+function scopedStaffSqlFragment(requested: string | undefined, scope: string[] | null | undefined): Prisma.Sql {
+  const cond = scopedNameFilter(requested, scope);
+  if (cond === undefined) return Prisma.empty;
+  if (typeof cond === "string") return Prisma.sql` AND "staff_name" = ${cond}`;
+  if (cond.in.length === 0) return Prisma.sql` AND false`;
+  return Prisma.sql` AND "staff_name" = ANY(${cond.in})`;
+}
 
 const PAGE_SIZE_DEFAULT = 25;
 const PAGE_SIZE_MAX = 100;
@@ -52,6 +99,7 @@ export interface ReportFilters {
   createdSince?: Date;
   createdBefore?: Date;
   staffName?: string;
+  scope?: string[] | null;
 }
 
 // -------------------- Widget 1: Assignment overview --------------------
@@ -76,9 +124,10 @@ export async function getAssignmentOverview(params: AssignmentOverviewParams) {
   const sortDir = params.sortDir === "asc" ? "asc" : "desc";
 
   const dateRange = leadDateRange(params.createdSince, params.createdBefore);
+  const staffCond = scopedNameFilter(params.staffName, params.scope);
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(params.staffName ? { staffName: params.staffName } : {}),
+    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
     ...(params.search
       ? {
           OR: [
@@ -132,9 +181,10 @@ export async function getAssignmentOverview(params: AssignmentOverviewParams) {
 
 export async function getLeadsGroupedByStaff(filters: ReportFilters = {}) {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const staffCond = scopedNameFilter(filters.staffName, filters.scope);
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(filters.staffName ? { staffName: filters.staffName } : {}),
+    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
   };
   const leads = await prisma.crmLead.findMany({
     where,
@@ -172,10 +222,11 @@ export async function getActivityFeed(params: { page?: number; pageSize?: number
   const page = Math.max(1, params.page ?? 1);
   const pageSize = clampPageSize(params.pageSize);
   const dateRange = leadDateRange(params.createdSince, params.createdBefore);
+  // Staff filter here matches who *performed* the activity, not the lead's staffName.
+  const actorCond = scopedNameFilter(params.staffName, params.scope);
   const where: Prisma.CrmLeadActivityWhereInput = {
     ...(params.type ? { activityType: params.type } : {}),
-    // Staff filter here matches who *performed* the activity, not the lead's staffName.
-    ...(params.staffName ? { actorName: params.staffName } : {}),
+    ...(actorCond !== undefined ? { actorName: actorCond } : {}),
     ...(dateRange ? { lead: { zohoCreatedTime: dateRange } } : {}),
   };
 
@@ -214,7 +265,7 @@ interface PeriodCount {
 }
 
 export async function getConversionRate(granularity: "day" | "month", filters: ReportFilters = {}) {
-  const { createdSince, createdBefore, staffName } = filters;
+  const { createdSince, createdBefore, staffName, scope } = filters;
   const rollingWindowStart = granularity === "day" ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
   // The rolling window and the client's cutoff both narrow the range — use
   // whichever is later, so turning the cutoff on never re-includes data the
@@ -223,8 +274,9 @@ export async function getConversionRate(granularity: "day" | "month", filters: R
   // Each fragment is separated by an explicit space — concatenating adjacent
   // Prisma.sql fragments with no whitespace between them produces invalid SQL
   // like `$2AND "staff_name"...` when more than one condition is active.
-  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffName ? Prisma.sql` AND "staff_name" = ${staffName}` : Prisma.empty}`;
-  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffName ? Prisma.sql` AND "staff_name" = ${staffName}` : Prisma.empty}`;
+  const staffFragment = scopedStaffSqlFragment(staffName, scope);
+  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}`;
+  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}`;
 
   const [created, converted] =
     granularity === "day"
@@ -259,9 +311,10 @@ export async function getConversionRate(granularity: "day" | "month", filters: R
 
 export async function getStageWise(filters: ReportFilters = {}) {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const staffCond = scopedNameFilter(filters.staffName, filters.scope);
   const leadWhere: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(filters.staffName ? { staffName: filters.staffName } : {}),
+    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
   };
   const counts = await prisma.crmLead.groupBy({ by: ["funnelStage"], where: leadWhere, _count: { _all: true } });
   const countFor = (stage: string) => counts.find((c) => c.funnelStage === stage)?._count._all ?? 0;
@@ -271,7 +324,7 @@ export async function getStageWise(filters: ReportFilters = {}) {
     by: ["fromStage", "toStage"],
     where: {
       changedAt: { gte: yesterday },
-      ...(dateRange || filters.staffName ? { lead: leadWhere } : {}),
+      ...(dateRange || staffCond !== undefined ? { lead: leadWhere } : {}),
     },
     _count: { _all: true },
   });
@@ -290,9 +343,10 @@ const KANBAN_STAGES = [...FUNNEL_ORDER, "DROPPED", "OTHER"];
 
 export async function getKanbanBoard(params: { search?: string } & ReportFilters = {}) {
   const dateRange = leadDateRange(params.createdSince, params.createdBefore);
+  const staffCond = scopedNameFilter(params.staffName, params.scope);
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(params.staffName ? { staffName: params.staffName } : {}),
+    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
     ...(params.search
       ? { OR: [{ fullName: { contains: params.search, mode: "insensitive" } }, { company: { contains: params.search, mode: "insensitive" } }] }
       : {}),
@@ -317,10 +371,11 @@ export async function getKanbanBoard(params: { search?: string } & ReportFilters
 
 export async function listLeadsForSelector(search: string | undefined, filters: ReportFilters = {}) {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const staffCond = scopedNameFilter(filters.staffName, filters.scope);
   return prisma.crmLead.findMany({
     where: {
       ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-      ...(filters.staffName ? { staffName: filters.staffName } : {}),
+      ...(staffCond !== undefined ? { staffName: staffCond } : {}),
       ...(search ? { OR: [{ fullName: { contains: search, mode: "insensitive" } }, { company: { contains: search, mode: "insensitive" } }] } : {}),
     },
     select: { id: true, fullName: true, company: true, funnelStage: true, staffName: true },
@@ -349,7 +404,7 @@ export interface TimelineEntry {
   toValue: string | null;
 }
 
-export async function getLeadDetail(id: string, activityType?: CrmActivityType) {
+export async function getLeadDetail(id: string, activityType?: CrmActivityType, scope?: string[] | null) {
   const lead = await prisma.crmLead.findUnique({
     where: { id },
     include: {
@@ -359,6 +414,12 @@ export async function getLeadDetail(id: string, activityType?: CrmActivityType) 
     },
   });
   if (!lead) throw new AppError(404, "Lead not found");
+  // A scoped (Team Lead/Staff) requester can only open a lead staffed to
+  // them or their team — same 404 (not 403) as an unknown id, so a scoped
+  // user can't probe for the existence of leads outside their visibility.
+  if (scope && (!lead.staffName || !scope.includes(lead.staffName))) {
+    throw new AppError(404, "Lead not found");
+  }
 
   const timeline: TimelineEntry[] = [
     ...lead.activities.map((a) => ({
@@ -435,9 +496,10 @@ export interface StaffOverviewRow {
 
 export async function listStaffOverview(filters: ReportFilters = {}): Promise<StaffOverviewRow[]> {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
+  const staffCond = scopedNameFilter(filters.staffName, filters.scope);
   const leads = await prisma.crmLead.findMany({
     where: {
-      staffName: filters.staffName ? filters.staffName : { not: null },
+      staffName: staffCond !== undefined ? staffCond : { not: null },
       ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
     },
     select: { staffName: true, converted: true },
@@ -455,7 +517,7 @@ export async function listStaffOverview(filters: ReportFilters = {}): Promise<St
   const activityAgg = await prisma.crmLeadActivity.groupBy({
     by: ["actorName"],
     where: {
-      actorName: filters.staffName ? filters.staffName : { not: null },
+      actorName: staffCond !== undefined ? staffCond : { not: null },
       ...(dateRange ? { lead: { zohoCreatedTime: dateRange } } : {}),
     },
     _count: { _all: true },
@@ -465,7 +527,8 @@ export async function listStaffOverview(filters: ReportFilters = {}): Promise<St
 
   // Union of names seen as either a lead's staffName or an activity actor —
   // a staff member who's logged activity but currently has no leads staffed
-  // to them (or vice versa) should still show up.
+  // to them (or vice versa) should still show up. Both queries above already
+  // apply the caller's scope, so this union is scoped too.
   const allNames = new Set<string>([...byStaff.keys(), ...activityByName.keys()]);
 
   return Array.from(allNames)
@@ -484,6 +547,12 @@ export async function listStaffOverview(filters: ReportFilters = {}): Promise<St
 }
 
 export async function getStaffDetail(staffName: string, filters: ReportFilters = {}) {
+  // Same fail-closed 404 as getLeadDetail — a scoped requester asking for a
+  // staffName outside their team shouldn't learn whether that name exists.
+  if (filters.scope && !filters.scope.includes(staffName)) {
+    throw new AppError(404, "No leads or activity found for this staff member");
+  }
+
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
   const leadWhere: Prisma.CrmLeadWhereInput = { staffName, ...(dateRange ? { zohoCreatedTime: dateRange } : {}) };
   const [leads, activitiesLogged] = await Promise.all([
@@ -623,11 +692,12 @@ function toDailyItems(activities: { id: string; leadId: string; actorName: strin
   }));
 }
 
-export async function getDailyReport(staffName?: string) {
+export async function getDailyReport(staffName?: string, scope?: string[] | null) {
   const yesterday = kathmanduDayBounds(1);
   const today = kathmanduDayBounds(0);
   const leadSelect = { select: { fullName: true, company: true } } as const;
-  const staffFilter = staffName ? { actorName: staffName } : {};
+  const actorCond = scopedNameFilter(staffName, scope);
+  const staffFilter = actorCond !== undefined ? { actorName: actorCond } : {};
 
   const [completedYesterdayRaw, dueTodayRaw, callsYesterdayRaw, callsTodayRaw] = await Promise.all([
     // Tasks whose status turned Completed, last touched yesterday (Modified_Time is what occurredAt is set from for TASK activities).
@@ -690,8 +760,9 @@ export interface ClosureReportRow {
   dealsConverted: number;
 }
 
-export async function getClosureReport(period: ClosurePeriod, staffName?: string) {
+export async function getClosureReport(period: ClosurePeriod, staffName?: string, scope?: string[] | null) {
   const { start, end } = kathmanduPeriodBounds(period);
+  const nameCond = scopedNameFilter(staffName, scope);
 
   const [activityAgg, dealAgg] = await Promise.all([
     prisma.crmLeadActivity.groupBy({
@@ -700,7 +771,7 @@ export async function getClosureReport(period: ClosurePeriod, staffName?: string
         status: "Completed",
         activityType: { in: ["TASK", "CALL"] },
         occurredAt: { gte: start, lt: end },
-        actorName: staffName ? staffName : { not: null },
+        actorName: nameCond !== undefined ? nameCond : { not: null },
       },
       _count: { _all: true },
     }),
@@ -709,7 +780,7 @@ export async function getClosureReport(period: ClosurePeriod, staffName?: string
       where: {
         converted: true,
         convertedAt: { gte: start, lt: end },
-        staffName: staffName ? staffName : { not: null },
+        staffName: nameCond !== undefined ? nameCond : { not: null },
       },
       _count: { _all: true },
     }),

@@ -25,11 +25,20 @@ function parseDate(value: unknown, label: string): Date | undefined {
   return d;
 }
 
-function parseFilters(query: Request["query"]): ReportFilters {
+// Every handler resolves the requester's CRM-Reports-specific visibility
+// scope (Admin/Manager: null = unrestricted; Team Lead: their team; Staff:
+// themselves) once and threads it into the service call alongside the
+// user's free-text filter selection — see getCrmStaffScope's module comment.
+async function getScope(req: Request) {
+  return service.getCrmStaffScope(req.user!);
+}
+
+async function parseFilters(req: Request): Promise<ReportFilters> {
   return {
-    createdSince: parseDate(query.createdSince, "createdSince"),
-    createdBefore: parseDate(query.createdBefore, "createdBefore"),
-    staffName: typeof query.staffName === "string" && query.staffName ? query.staffName : undefined,
+    createdSince: parseDate(req.query.createdSince, "createdSince"),
+    createdBefore: parseDate(req.query.createdBefore, "createdBefore"),
+    staffName: typeof req.query.staffName === "string" && req.query.staffName ? req.query.staffName : undefined,
+    scope: await getScope(req),
   };
 }
 
@@ -41,7 +50,7 @@ export async function assignmentOverviewHandler(req: Request, res: Response) {
       search: typeof req.query.search === "string" ? req.query.search : undefined,
       sortBy: typeof req.query.sortBy === "string" ? req.query.sortBy : undefined,
       sortDir: req.query.sortDir === "asc" ? "asc" : "desc",
-      ...parseFilters(req.query),
+      ...(await parseFilters(req)),
     }),
   );
 }
@@ -51,18 +60,18 @@ export async function dailyReportHandler(req: Request, res: Response) {
   // cache serve a stale day's report.
   res.set("Cache-Control", "no-store");
   const staffName = typeof req.query.staffName === "string" && req.query.staffName ? req.query.staffName : undefined;
-  res.json(await service.getDailyReport(staffName));
+  res.json(await service.getDailyReport(staffName, await getScope(req)));
 }
 
 export async function closureReportHandler(req: Request, res: Response) {
   res.set("Cache-Control", "no-store");
   const period = req.query.period === "week" || req.query.period === "month" ? (req.query.period as ClosurePeriod) : ("day" as ClosurePeriod);
   const staffName = typeof req.query.staffName === "string" && req.query.staffName ? req.query.staffName : undefined;
-  res.json(await service.getClosureReport(period, staffName));
+  res.json(await service.getClosureReport(period, staffName, await getScope(req)));
 }
 
 export async function groupedByStaffHandler(req: Request, res: Response) {
-  res.json(await service.getLeadsGroupedByStaff(parseFilters(req.query)));
+  res.json(await service.getLeadsGroupedByStaff(await parseFilters(req)));
 }
 
 export async function activityFeedHandler(req: Request, res: Response) {
@@ -71,41 +80,41 @@ export async function activityFeedHandler(req: Request, res: Response) {
       page: req.query.page ? Number(req.query.page) : undefined,
       pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
       type: parseActivityType(req.query.type),
-      ...parseFilters(req.query),
+      ...(await parseFilters(req)),
     }),
   );
 }
 
 export async function conversionRateHandler(req: Request, res: Response) {
   const granularity = req.query.granularity === "month" ? "month" : "day";
-  res.json(await service.getConversionRate(granularity, parseFilters(req.query)));
+  res.json(await service.getConversionRate(granularity, await parseFilters(req)));
 }
 
 export async function stageWiseHandler(req: Request, res: Response) {
-  res.json(await service.getStageWise(parseFilters(req.query)));
+  res.json(await service.getStageWise(await parseFilters(req)));
 }
 
 export async function kanbanHandler(req: Request, res: Response) {
   res.json(
     await service.getKanbanBoard({
       search: typeof req.query.search === "string" ? req.query.search : undefined,
-      ...parseFilters(req.query),
+      ...(await parseFilters(req)),
     }),
   );
 }
 
 export async function leadsSelectorHandler(req: Request, res: Response) {
-  res.json(await service.listLeadsForSelector(typeof req.query.search === "string" ? req.query.search : undefined, parseFilters(req.query)));
+  res.json(await service.listLeadsForSelector(typeof req.query.search === "string" ? req.query.search : undefined, await parseFilters(req)));
 }
 
 export async function leadDetailHandler(req: Request, res: Response) {
-  res.json(await service.getLeadDetail(req.params.id, parseActivityType(req.query.type)));
+  res.json(await service.getLeadDetail(req.params.id, parseActivityType(req.query.type), await getScope(req)));
 }
 
 export async function staffOverviewHandler(req: Request, res: Response) {
-  res.json(await service.listStaffOverview(parseFilters(req.query)));
+  res.json(await service.listStaffOverview(await parseFilters(req)));
 }
 
 export async function staffDetailHandler(req: Request, res: Response) {
-  res.json(await service.getStaffDetail(req.params.staffName, parseFilters(req.query)));
+  res.json(await service.getStaffDetail(req.params.staffName, await parseFilters(req)));
 }
