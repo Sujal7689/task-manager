@@ -13,7 +13,9 @@ interface DailyItem {
   staff: string | null;
   subject: string | null;
   status: string | null;
+  scheduledAt: string | null;
   time: string;
+  latestNote: string | null;
 }
 
 interface DailySection {
@@ -26,8 +28,14 @@ interface CallsYesterdaySection extends DailySection {
   missed: number;
 }
 
+interface LeadsAssignedRow {
+  staff: string;
+  count: number;
+}
+
 interface DailyReport {
   date: string;
+  leadsAssigned: LeadsAssignedRow[];
   completedYesterday: DailySection;
   dueToday: DailySection;
   callsYesterday: CallsYesterdaySection;
@@ -36,17 +44,27 @@ interface DailyReport {
 
 const PIE_COLORS = [CATEGORICAL.blue, CATEGORICAL.aqua, CATEGORICAL.orange, CATEGORICAL.yellow, CATEGORICAL.magenta, CATEGORICAL.green, CATEGORICAL.violet, CATEGORICAL.red];
 
+// Nepal-local (UTC+5:45) "today" as a plain YYYY-MM-DD — the date picker's
+// default, matching the backend's own anchor-date semantics.
+function nepalTodayStr(): string {
+  return new Date(Date.now() + (5 * 60 + 45) * 60 * 1000).toISOString().slice(0, 10);
+}
+
 // Client-confirmed scope: CRM Leads/Calls only, meant to be pulled up as one
 // continuous sheet during the morning meeting — so unlike the Dashboard
 // widgets, tables here deliberately don't cap height/scroll internally.
+// The date picker re-anchors "yesterday"/"today" to any day (reviewing a
+// past morning meeting) — it's always exactly that day plus the one before,
+// never an open-ended range.
 export default function DailyReportSection() {
   const [report, setReport] = useState<DailyReport | null>(null);
+  const [anchorDate, setAnchorDate] = useState(nepalTodayStr());
   const leadLink = useLeadReportLink();
   const { staffName } = useLeadDateFilter();
 
   useEffect(() => {
-    api.get<DailyReport>("/crm-lead-reports/daily", { params: { staffName } }).then((res) => setReport(res.data));
-  }, [staffName]);
+    api.get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, date: anchorDate } }).then((res) => setReport(res.data));
+  }, [staffName, anchorDate]);
 
   if (!report) return <p className="text-sm text-slate-400 py-12 text-center">Loading...</p>;
 
@@ -56,12 +74,40 @@ export default function DailyReportSection() {
     month: "long",
     day: "numeric",
   });
+  const isToday = anchorDate === nepalTodayStr();
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Daily Report</h2>
-        <p className="text-sm text-slate-500">{dateLabel} (Nepal time) — for the morning meeting</p>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">Daily Report</h2>
+          <p className="text-sm text-slate-500">{dateLabel} (Nepal time) — for the morning meeting</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-500">Show yesterday/today relative to</label>
+          <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} className="input w-auto py-1 text-sm" />
+          {!isToday && (
+            <button onClick={() => setAnchorDate(nepalTodayStr())} className="text-xs text-slate-400 underline hover:text-slate-600">
+              Back to today
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h3 className="text-sm font-medium text-slate-700 mb-3">Leads assigned per staff</h3>
+        {report.leadsAssigned.length === 0 ? (
+          <p className="text-xs text-slate-400">No leads have a Staff Name assigned yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {report.leadsAssigned.map((r) => (
+              <div key={r.staff} className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 min-w-[120px]">
+                <p className="text-xs text-slate-500">{r.staff}</p>
+                <p className="text-lg font-semibold text-slate-900">{r.count}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -155,7 +201,9 @@ function ReportTable({
               <th className="px-2 pb-2">Staff</th>
               <th className="px-2 pb-2">Subject</th>
               <th className="px-2 pb-2">Status</th>
-              <th className="px-4 pb-2">Time</th>
+              <th className="px-2 pb-2">Scheduled</th>
+              <th className="px-2 pb-2">Actual/Updated</th>
+              <th className="px-4 pb-2">Latest note</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -175,13 +223,17 @@ function ReportTable({
                     {it.status ?? "—"}
                     {missed && " (missed)"}
                   </td>
-                  <td className="px-4 py-2 text-slate-500 text-xs whitespace-nowrap">{new Date(it.time).toLocaleString()}</td>
+                  <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">
+                    {it.scheduledAt ? new Date(it.scheduledAt).toLocaleString() : "—"}
+                  </td>
+                  <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{new Date(it.time).toLocaleString()}</td>
+                  <td className="px-4 py-2 text-slate-600 text-xs max-w-[220px]">{it.latestNote ?? "—"}</td>
                 </tr>
               );
             })}
             {items.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   {emptyLabel}
                 </td>
               </tr>

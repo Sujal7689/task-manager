@@ -505,20 +505,22 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   (`CrmReports/GroupedByStaffList.tsx`, backed by `GET /crm-lead-reports/
   dashboard/grouped-by-staff`.)
 - **Daily Report tab** — a fourth CRM Reports tab, meant to be pulled up as
-  one continuous sheet for the morning meeting: 4 pie charts + 4 tables
-  (Tasks completed yesterday, Calls that were supposed to happen yesterday,
-  Tasks due today, Calls today — who's assigned), scoped to CRM Leads/Calls
-  only per client confirmation (not the internal Task app). "Today"/
-  "yesterday" are anchored to Nepal local time (`Asia/Kathmandu`, UTC+5:45)
-  regardless of server timezone, and it deliberately ignores the
-  leads-since cutoff filter used everywhere else — today's work matters
-  regardless of how old the underlying lead is. The response is sent with
-  `Cache-Control: no-store` since "today" shifts by the hour. Required
-  adding `dueDate`/`status` columns to `crm_lead_activity` (not captured
-  before this), populated for TASK (Zoho's own `Due_Date`/`Status`) and
-  CALL (derived from which related list it came from — open "Calls" vs.
-  closed "Calls_History" — since Zoho's Calls related list has no clean
-  status field of its own).
+  one continuous sheet for the morning meeting: a "leads assigned per staff"
+  snapshot, 4 pie charts, and 4 tables (Tasks completed yesterday, Calls
+  that were supposed to happen yesterday, Tasks due today, Calls today —
+  who's assigned), scoped to CRM Leads/Calls only per client confirmation
+  (not the internal Task app). "Today"/"yesterday" are anchored to Nepal
+  local time (`Asia/Kathmandu`, UTC+5:45) and, via a `?date=` anchor date
+  picker on the page, can be re-pointed at any day (still always exactly
+  that day plus the one before — never an open-ended range, by design).
+  Deliberately ignores the leads-since cutoff filter used everywhere else —
+  a day's work matters regardless of how old the underlying lead is. The
+  response is sent with `Cache-Control: no-store` since "today" shifts by
+  the hour. Required adding `dueDate`/`status` columns to
+  `crm_lead_activity` (not captured before this), populated for TASK
+  (Zoho's own `Due_Date`/`Status`) and CALL (derived from which related
+  list it came from — open "Calls" vs. closed "Calls_History" — since
+  Zoho's Calls related list has no clean status field of its own).
   - **Known simplification**: a yesterday's-call row shows status
     "Completed" as soon as Zoho moves it to `Calls_History` — which also
     happens for calls logged as cancelled/no-answer/etc., not only ones
@@ -526,16 +528,44 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
     real outcome (e.g. "...cancelled"), so it's visible, just not treated
     as a distinct "missed" state — only a call still sitting in the open
     `Calls` list past its scheduled time counts as flagged-missed today.
+  - **Scheduled-vs-actual (2026-09-13)**: Calls now also carry `dueDate`
+    (= `Call_Start_Time`, the scheduled time), matching Tasks — previously
+    a Call's `occurredAt` *was* its scheduled time with no way to see
+    "when it actually happened" separately. `occurredAt` for Calls is now
+    Modified_Time-first (falling back to Call_Start_Time/Created_Time),
+    same convention every other activity type already used. Every Daily
+    Report row now shows both **Scheduled** (`dueDate`) and
+    **Actual/Updated** (`occurredAt`) side by side, plus a **Latest note**
+    column (the single most recent NOTE-type activity logged against that
+    same lead — not a full note history, just a one-line glance). Calls
+    yesterday/today are now filtered by `dueDate` (was `occurredAt`) so
+    "which day" reflects when the call was scheduled, not last touched.
+    Since `dueDate` was never populated for Calls before this, **a full
+    backfill is required** for existing Call rows to show a Scheduled time
+    or appear correctly in the yesterday/today windows at all.
+  - **Staff attribution fix (2026-09-13)**: confirmed against this org's
+    real Zoho data that every CRM Task's `Owner` is one generic account
+    (Harsh Singhania) and every Call's `Owner` is a different single
+    generic account (Sanjay Singhania), regardless of who actually works
+    the lead — so every Daily Report row (Tasks completed yesterday, Tasks
+    due today, Calls yesterday, Calls today) is credited to the parent
+    **Lead's `staffName`**, not the activity's own `actorName`. This is a
+    deliberate, Daily-Report-specific exception — Activity Feed and every
+    other activity-level view in this module still correctly use
+    `actorName` ("who logged this"), which is a genuinely different
+    question from "whose lead is this."
   `CrmReports/DailyReportSection.tsx`, backed by `GET /crm-lead-reports/daily`.
 - **Closure Report tab** — a fifth CRM Reports tab: a Day/Week/Month toggle
   over a per-staff scoreboard of activities closed and deals converted.
-  "Closed" means a TASK or CALL activity with `status: "Completed"` in the
-  selected Nepal-time period, credited to `actorName`; "converted" means a
-  lead with `converted: true` and `convertedAt` in that period, credited to
-  the lead's `staffName` — deliberately two different credit rules, since
-  conversion is an outcome of the deal rather than of whichever staff member
-  happened to touch it last. `CrmReports/ClosureReportSection.tsx`, backed
-  by `getClosureReport` / `GET /crm-lead-reports/closure`.
+  "Closed" means a CALL or TASK activity with `status: "Completed"` in the
+  selected Nepal-time period; "converted" means a lead with
+  `converted: true` and `convertedAt` in that period. All three are
+  credited to the parent lead's `staffName`, not `actorName` — same
+  Harsh-Singhania/Sanjay-Singhania generic-Owner finding as the Daily
+  Report above (fixed 2026-09-13; completed Calls/Tasks were previously
+  both credited to `actorName`).
+  `CrmReports/ClosureReportSection.tsx`, backed by `getClosureReport` /
+  `GET /crm-lead-reports/closure`.
 - **Owner → Staff Name migration (2026-09-10)**: the client added a custom
   "Staff Name" picklist field directly in Zoho (Leads module, API name
   `Staff_Name`) as the real field of record for lead assignment, and every
@@ -647,7 +677,7 @@ All endpoints under `/api` except `/api/auth/login` require
 - `GET /api/crm-lead-reports/dashboard/grouped-by-staff` — every lead grouped by owner, for the Dashboard's "By Staff" view
 - `GET /api/crm-lead-reports/leads`, `GET /api/crm-lead-reports/leads/:id` — Lead-wise tab (selector + merged activity timeline, `?type=` filters to one activity type and hides stage/owner-change entries)
 - `GET /api/crm-lead-reports/staff` — Staff-wise tab's default overview (leads owned, conversion rate, activities logged, last activity per `staffName` — no one needs to be selected first), `GET /api/crm-lead-reports/staff/:staffName` for the drill-down detail (path segment is the Staff Name field's value, URL-encoded — not Owner)
-- `GET /api/crm-lead-reports/daily` — Daily Report tab (tasks completed yesterday, tasks due today, calls today by staff — Nepal-time day boundaries, ignores the date-range filter; accepts `?staffName=`, matched against `actorName`)
+- `GET /api/crm-lead-reports/daily` — Daily Report tab (tasks completed yesterday, tasks due today, calls today by staff — Nepal-time day boundaries, ignores the date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — and `?date=` to re-anchor yesterday/today to any day)
 - `GET /api/crm-lead-reports/closure?period=day|week|month` — Closure Report tab (activities closed + deals converted per staff, Nepal-time period bounds; accepts `?staffName=`)
 
 **Phase 6 — admin & audit**

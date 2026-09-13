@@ -186,8 +186,17 @@ const ACTIVITY_SPECS: ActivitySpec[] = [
     normalize: (r, relatedList) => {
       const actor = lookupName(r.Owner);
       const type = (r.Call_Type as string) || "Call";
+      const callStartStr = r.Call_Start_Time as string | undefined;
       return {
-        occurredAt: firstDate(r.Call_Start_Time, r.Created_Time),
+        // `dueDate` is the scheduled time (Call_Start_Time) and `occurredAt`
+        // is when it was actually last touched (Modified_Time — set when
+        // Zoho moves it to Calls_History on completion) — same
+        // scheduled-vs-actual split as TASK below, for the Daily Report's
+        // "when was it supposed to happen vs. when did it happen" view.
+        // Previously occurredAt WAS Call_Start_Time with no Modified_Time
+        // fallback at all, unlike every other activity type.
+        occurredAt: firstDate(r.Modified_Time, r.Call_Start_Time, r.Created_Time),
+        dueDate: callStartStr ? new Date(callStartStr) : undefined,
         actorId: actor.id,
         actorName: actor.name,
         summary: (r.Subject as string) || type,

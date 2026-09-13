@@ -616,8 +616,14 @@ export async function getStaffDetail(staffName: string, filters: ReportFilters =
 // since that's where the team actually is.
 const KATHMANDU_OFFSET_MS = (5 * 60 + 45) * 60 * 1000;
 
-function kathmanduDayBounds(daysAgo: number): { start: Date; end: Date } {
-  const shifted = new Date(Date.now() + KATHMANDU_OFFSET_MS);
+// `anchorDate`, when given, is treated as the calendar date itself (e.g. a
+// plain "2026-09-10" parses to that date's UTC midnight) rather than a live
+// timestamp needing the +offset-then-truncate conversion — it's already
+// "which Nepal calendar day," not "what does the clock read right now."
+function kathmanduDayBounds(daysAgo: number, anchorDate?: Date): { start: Date; end: Date } {
+  const shifted = anchorDate
+    ? new Date(Date.UTC(anchorDate.getUTCFullYear(), anchorDate.getUTCMonth(), anchorDate.getUTCDate()))
+    : new Date(Date.now() + KATHMANDU_OFFSET_MS);
   shifted.setUTCHours(0, 0, 0, 0);
   shifted.setUTCDate(shifted.getUTCDate() - daysAgo);
   const start = new Date(shifted.getTime() - KATHMANDU_OFFSET_MS);
@@ -651,11 +657,20 @@ function kathmanduPeriodBounds(period: ClosurePeriod): { start: Date; end: Date 
 // -------------------- Daily Report (everyday morning-meeting sheet) --------------------
 // Client-confirmed scope: CRM Leads/Calls only (not the internal Task app).
 // Deliberately ignores the leads-since date filter used everywhere else —
-// this report is about what's happening *today*, regardless of how old the
-// underlying lead is, so excluding older leads could hide real ongoing work.
-// The staff filter here matches `actorName` (who actually performed the
-// activity), same activity-level convention as Activity Feed/Closure
-// Report's "activities closed" — see the module-level comment above.
+// this report is about what's happening on the selected day, regardless of
+// how old the underlying lead is, so excluding older leads could hide real
+// ongoing work. `anchorDate` (optional) re-anchors "yesterday"/"today" to any
+// day, not just the literal current one — the report is always exactly that
+// day plus the one before it, never an arbitrary range.
+//
+// Every item type here is credited to the parent Lead's `staffName`, not the
+// activity's own `actorName` — confirmed against this org's real Zoho data
+// that both Tasks' and Calls' Owner field is a single generic account
+// (Harsh Singhania for Tasks, Sanjay Singhania for Calls) regardless of who
+// actually works the lead, so `actorName` is useless for attribution here.
+// This is a deliberate, Daily-Report-specific exception to the general
+// actorName-based convention used by Activity Feed elsewhere in this module
+// (where actorName is still the right answer for "who logged this note").
 
 interface DailyReportItem {
   activityId: string;
@@ -665,7 +680,9 @@ interface DailyReportItem {
   staff: string | null;
   subject: string | null;
   status: string | null;
+  scheduledAt: Date | null;
   time: Date;
+  latestNote: string | null;
 }
 
 function byStaffCounts(items: DailyReportItem[]): { staff: string; count: number }[] {
@@ -679,65 +696,122 @@ function byStaffCounts(items: DailyReportItem[]): { staff: string; count: number
     .sort((a, b) => b.count - a.count);
 }
 
-function toDailyItems(activities: { id: string; leadId: string; actorName: string | null; summary: string | null; status: string | null; occurredAt: Date; lead: { fullName: string | null; company: string | null } }[]): DailyReportItem[] {
+type DailyActivityRow = {
+  id: string;
+  leadId: string;
+  actorName: string | null;
+  summary: string | null;
+  status: string | null;
+  dueDate: Date | null;
+  occurredAt: Date;
+  lead: { fullName: string | null; company: string | null; staffName: string | null };
+};
+
+function toDailyItems(activities: DailyActivityRow[], notesByLead: Map<string, string>): DailyReportItem[] {
   return activities.map((a) => ({
     activityId: a.id,
     leadId: a.leadId,
     leadName: a.lead.fullName ?? a.lead.company ?? "(unnamed lead)",
     company: a.lead.company,
-    staff: a.actorName,
+    staff: a.lead.staffName,
     subject: a.summary,
     status: a.status,
+    scheduledAt: a.dueDate,
     time: a.occurredAt,
+    latestNote: notesByLead.get(a.leadId) ?? null,
   }));
 }
 
-export async function getDailyReport(staffName?: string, scope?: string[] | null) {
-  const yesterday = kathmanduDayBounds(1);
-  const today = kathmanduDayBounds(0);
-  const leadSelect = { select: { fullName: true, company: true } } as const;
-  const actorCond = scopedNameFilter(staffName, scope);
-  const staffFilter = actorCond !== undefined ? { actorName: actorCond } : {};
+// Every Note-type activity's own `summary` is already truncated to 200 chars
+// at sync time (crmLeads.service.ts) — "what does the note say" here is
+// deliberately just the single most recent note per lead, not a full note
+// history, to keep each Daily Report row a one-line glance.
+async function latestNotesForLeads(leadIds: string[]): Promise<Map<string, string>> {
+  if (leadIds.length === 0) return new Map();
+  const notes = await prisma.crmLeadActivity.findMany({
+    where: { activityType: "NOTE", leadId: { in: leadIds } },
+    select: { leadId: true, summary: true, occurredAt: true },
+    orderBy: { occurredAt: "desc" },
+  });
+  const byLead = new Map<string, string>();
+  for (const n of notes) {
+    if (!byLead.has(n.leadId) && n.summary) byLead.set(n.leadId, n.summary);
+  }
+  return byLead;
+}
 
-  const [completedYesterdayRaw, dueTodayRaw, callsYesterdayRaw, callsTodayRaw] = await Promise.all([
+export interface LeadsAssignedRow {
+  staff: string;
+  count: number;
+}
+
+export async function getDailyReport(staffName?: string, scope?: string[] | null, anchorDate?: Date) {
+  const yesterday = kathmanduDayBounds(1, anchorDate);
+  const today = kathmanduDayBounds(0, anchorDate);
+  const leadSelect = { select: { fullName: true, company: true, staffName: true } } as const;
+  const nameCond = scopedNameFilter(staffName, scope);
+  const leadStaffFilter = nameCond !== undefined ? { lead: { staffName: nameCond } } : {};
+
+  const [completedYesterdayRaw, dueTodayRaw, callsYesterdayRaw, callsTodayRaw, leadsAssignedRaw] = await Promise.all([
     // Tasks whose status turned Completed, last touched yesterday (Modified_Time is what occurredAt is set from for TASK activities).
+    // Credited to the lead's Staff Name — see module comment above.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "TASK", status: "Completed", occurredAt: { gte: yesterday.start, lt: yesterday.end }, ...staffFilter },
+      where: { activityType: "TASK", status: "Completed", occurredAt: { gte: yesterday.start, lt: yesterday.end }, ...leadStaffFilter },
       orderBy: { occurredAt: "desc" },
       include: { lead: leadSelect },
     }),
-    // Open tasks (not Completed) due today.
+    // Open tasks (not Completed) due today. Credited to the lead's Staff Name.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "TASK", status: { not: "Completed" }, dueDate: { gte: today.start, lt: today.end }, ...staffFilter },
+      where: { activityType: "TASK", status: { not: "Completed" }, dueDate: { gte: today.start, lt: today.end }, ...leadStaffFilter },
       orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
     }),
-    // Every call that was *supposed* to happen yesterday (Call_Start_Time
-    // yesterday) — `status` on each item tells you whether it actually got
-    // made ("Completed", i.e. moved to Calls_History) or was missed (still
-    // "Scheduled" — Zoho never moved it, meaning nobody logged it as done).
+    // Every call that was *supposed* to happen yesterday (dueDate = Call_Start_Time,
+    // yesterday) — `status` tells you whether it actually got made ("Completed",
+    // i.e. moved to Calls_History) or was missed (still "Scheduled"). Credited
+    // to the lead's Staff Name.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "CALL", occurredAt: { gte: yesterday.start, lt: yesterday.end }, ...staffFilter },
-      orderBy: { occurredAt: "asc" },
+      where: { activityType: "CALL", dueDate: { gte: yesterday.start, lt: yesterday.end }, ...leadStaffFilter },
+      orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
     }),
     // Every call scheduled for today, regardless of whether it's already
-    // happened — "who's got which calls today" is the point, not just what's left.
+    // happened — "who's got which calls today" is the point, not just what's
+    // left. Credited to the lead's Staff Name.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "CALL", occurredAt: { gte: today.start, lt: today.end }, ...staffFilter },
-      orderBy: { occurredAt: "asc" },
+      where: { activityType: "CALL", dueDate: { gte: today.start, lt: today.end }, ...leadStaffFilter },
+      orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
+    }),
+    // Snapshot, not date-scoped — Zoho tracks no history for Staff Name, so
+    // "leads assigned as of yesterday" isn't computable; this is simply the
+    // current count per staff, shown alongside the day-specific sections.
+    prisma.crmLead.groupBy({
+      by: ["staffName"],
+      where: { staffName: nameCond !== undefined ? nameCond : { not: null } },
+      _count: { _all: true },
     }),
   ]);
 
-  const completedYesterday = toDailyItems(completedYesterdayRaw);
-  const dueToday = toDailyItems(dueTodayRaw);
-  const callsYesterday = toDailyItems(callsYesterdayRaw);
-  const callsToday = toDailyItems(callsTodayRaw);
+  const allLeadIds = Array.from(
+    new Set([...completedYesterdayRaw, ...dueTodayRaw, ...callsYesterdayRaw, ...callsTodayRaw].map((a) => a.leadId)),
+  );
+  const notesByLead = await latestNotesForLeads(allLeadIds);
+
+  const completedYesterday = toDailyItems(completedYesterdayRaw, notesByLead);
+  const dueToday = toDailyItems(dueTodayRaw, notesByLead);
+  const callsYesterday = toDailyItems(callsYesterdayRaw, notesByLead);
+  const callsToday = toDailyItems(callsTodayRaw, notesByLead);
   const missedCallsYesterday = callsYesterday.filter((c) => c.status !== "Completed").length;
+
+  const leadsAssigned: LeadsAssignedRow[] = leadsAssignedRaw
+    .filter((r) => r.staffName)
+    .map((r) => ({ staff: r.staffName as string, count: r._count._all }))
+    .sort((a, b) => b.count - a.count);
 
   return {
     date: today.start.toISOString(),
+    leadsAssigned,
     completedYesterday: { total: completedYesterday.length, byStaff: byStaffCounts(completedYesterday), items: completedYesterday },
     dueToday: { total: dueToday.length, byStaff: byStaffCounts(dueToday), items: dueToday },
     callsYesterday: { total: callsYesterday.length, missed: missedCallsYesterday, byStaff: byStaffCounts(callsYesterday), items: callsYesterday },
@@ -747,12 +821,13 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
 
 // -------------------- Closure Report (day/week/month per-staff board) --------------------
 // "Closure report" per the client: how many tasks/activities each person
-// closed, and how many deals they converted, over a day/week/month. Two
-// different credit rules, deliberately: activities closed go to whoever
-// performed them (actorName — the person doing the work), deals converted
-// go to whoever the lead is staffed to (staffName — conversion is an
-// outcome of the deal, not of whichever staff member happened to touch it
-// last).
+// closed, and how many deals they converted, over a day/week/month. Every
+// item type here — completed TASKs, completed CALLs, and converted deals —
+// is credited to the parent Lead's `staffName`, not `actorName`: confirmed
+// against this org's real Zoho data that both Tasks' and Calls' Owner field
+// is a single generic account (Harsh Singhania / Sanjay Singhania
+// respectively) regardless of who actually works the lead, so `actorName`
+// is useless for attribution here — same finding as the Daily Report above.
 
 export interface ClosureReportRow {
   staff: string;
@@ -763,17 +838,18 @@ export interface ClosureReportRow {
 export async function getClosureReport(period: ClosurePeriod, staffName?: string, scope?: string[] | null) {
   const { start, end } = kathmanduPeriodBounds(period);
   const nameCond = scopedNameFilter(staffName, scope);
+  const leadStaffWhere = nameCond !== undefined ? { staffName: nameCond } : { staffName: { not: null } };
 
-  const [activityAgg, dealAgg] = await Promise.all([
-    prisma.crmLeadActivity.groupBy({
-      by: ["actorName"],
-      where: {
-        status: "Completed",
-        activityType: { in: ["TASK", "CALL"] },
-        occurredAt: { gte: start, lt: end },
-        actorName: nameCond !== undefined ? nameCond : { not: null },
-      },
-      _count: { _all: true },
+  const [completedTasks, completedCalls, dealAgg] = await Promise.all([
+    // Grouped in JS, not via Prisma groupBy, since crediting by the PARENT
+    // lead's staffName (a relation field) isn't expressible as a groupBy `by`.
+    prisma.crmLeadActivity.findMany({
+      where: { status: "Completed", activityType: "TASK", occurredAt: { gte: start, lt: end }, lead: leadStaffWhere },
+      select: { lead: { select: { staffName: true } } },
+    }),
+    prisma.crmLeadActivity.findMany({
+      where: { status: "Completed", activityType: "CALL", occurredAt: { gte: start, lt: end }, lead: leadStaffWhere },
+      select: { lead: { select: { staffName: true } } },
     }),
     prisma.crmLead.groupBy({
       by: ["staffName"],
@@ -787,18 +863,15 @@ export async function getClosureReport(period: ClosurePeriod, staffName?: string
   ]);
 
   const byStaff = new Map<string, ClosureReportRow>();
-  for (const a of activityAgg) {
-    const name = a.actorName as string;
+  function bump(name: string | null, field: "activitiesClosed" | "dealsConverted", amount = 1) {
+    if (!name) return;
     const row = byStaff.get(name) ?? { staff: name, activitiesClosed: 0, dealsConverted: 0 };
-    row.activitiesClosed = a._count._all;
+    row[field] += amount;
     byStaff.set(name, row);
   }
-  for (const d of dealAgg) {
-    const name = d.staffName as string;
-    const row = byStaff.get(name) ?? { staff: name, activitiesClosed: 0, dealsConverted: 0 };
-    row.dealsConverted = d._count._all;
-    byStaff.set(name, row);
-  }
+  for (const t of completedTasks) bump(t.lead.staffName, "activitiesClosed");
+  for (const c of completedCalls) bump(c.lead.staffName, "activitiesClosed");
+  for (const d of dealAgg) bump(d.staffName, "dealsConverted", d._count._all);
 
   const rows = Array.from(byStaff.values()).sort((a, b) => b.activitiesClosed + b.dealsConverted - (a.activitiesClosed + a.dealsConverted));
 
