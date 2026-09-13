@@ -507,7 +507,7 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
 - **Daily Report tab** — a fourth CRM Reports tab, designed to fit on one
   screen for the morning meeting rather than one long scroll: an overview
   row (total leads assigned / tasks / calls), a "leads assigned per staff"
-  snapshot, 2 comparison bar charts, and 3 tables (Tasks completed, Tasks
+  breakdown, 2 comparison bar charts, and 3 tables (Tasks completed, Tasks
   due, Calls), each a fixed-height card with its own internal scroll +
   pagination (same convention as the Dashboard widgets) rather than growing
   the page — you page through a section's rows instead of scrolling past
@@ -521,6 +521,16 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
     doesn't refetch) — the card mixes both statuses by default with missed
     ones flagged amber, but this lets you isolate just the completed or
     just the still-outstanding calls within the current date range.
+  - **"Leads assigned" is now range-scoped too (2026-09-13)**: previously
+    a plain current-count-per-staff snapshot that ignored the From/To
+    filter entirely, while every other section on the page reacted to it.
+    Zoho tracks no change history for Staff Name, so "assigned as of a past
+    day" still isn't computable — instead this now means *leads created
+    within the selected range, grouped by whoever currently holds them*,
+    filtered on `zohoCreatedTime` the same way every other creation-date
+    filter in this module already works. A narrow range with no new leads
+    created in it now correctly shows 0, rather than always showing the
+    full all-time total.
   - **Comparison bar charts, not per-metric pies (2026-09-13)**: "Tasks
     completed (23)" and "Tasks due (3)" used to be two separate pies, each
     only showing its own 100%-of-itself split by staff — useless for

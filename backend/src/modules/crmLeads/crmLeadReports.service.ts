@@ -805,12 +805,15 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
       orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
     }),
-    // Snapshot, not date-scoped — Zoho tracks no history for Staff Name, so
-    // "leads assigned as of a past day" isn't computable; this is simply the
-    // current count per staff, shown alongside the range-specific sections.
+    // Leads created within the selected range, grouped by the staff they're
+    // currently assigned to. Zoho tracks no change history for Staff Name
+    // itself, so this can't mean "who it was assigned to back then" — it
+    // means "of the leads that came in during this window, who holds them
+    // now," scoped by `zohoCreatedTime` the same way every other
+    // creation-date filter in this module works.
     prisma.crmLead.groupBy({
       by: ["staffName"],
-      where: { staffName: nameCond !== undefined ? nameCond : { not: null } },
+      where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range },
       _count: { _all: true },
     }),
   ]);
