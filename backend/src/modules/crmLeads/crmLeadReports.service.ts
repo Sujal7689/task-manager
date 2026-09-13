@@ -779,7 +779,6 @@ export interface DailyLeadItem {
   leadName: string;
   company: string | null;
   staff: string | null;
-  stage: string | null;
   status: string | null;
   phone: string | null;
   source: string | null;
@@ -851,7 +850,7 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     // table alongside Tasks/Calls, not just the per-staff count widget.
     prisma.crmLead.findMany({
       where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range },
-      select: { id: true, fullName: true, company: true, staffName: true, funnelStage: true, leadStatus: true, phone: true, leadSource: true, zohoCreatedTime: true },
+      select: { id: true, fullName: true, company: true, staffName: true, leadStatus: true, phone: true, leadSource: true, zohoCreatedTime: true },
       orderBy: { zohoCreatedTime: "desc" },
     }),
   ]);
@@ -876,7 +875,6 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     leadName: l.fullName ?? l.company ?? "(unnamed lead)",
     company: l.company,
     staff: l.staffName,
-    stage: l.funnelStage,
     status: l.leadStatus,
     phone: l.phone,
     latestNote: notesByLead.get(l.id) ?? null,

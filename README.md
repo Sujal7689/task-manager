@@ -520,10 +520,11 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
     "Leads assigned per staff" card, below the per-staff badges — same
     leads as that count/breakdown (created within the selected range,
     filtered on `zohoCreatedTime`), but one row per lead: Lead (links to
-    Lead-wise), Staff, Stage (`funnelStage`), Status (`leadStatus`), Call
-    status (the lead's most recent CALL activity's status), Phone, Source,
-    Created, Latest note — status/note/call-status shown inline so the row
-    is a full glance without opening the lead. Own component (`LeadsTable`
+    Lead-wise), Staff, Status (`leadStatus`), Call status (the lead's most
+    recent CALL activity's status), Phone, Source, Created, Latest note —
+    shown inline so the row is a full glance without opening the lead (no
+    separate Stage column — `leadStatus` already covers it more legibly
+    than the bucketed `funnelStage` enum value would). Own component (`LeadsTable`
     in `DailyReportSection.tsx`, with a `bare` mode that drops its own card
     chrome when nested like this) rather than reusing `ReportTable`, since a
     Lead's natural columns don't match an activity row's

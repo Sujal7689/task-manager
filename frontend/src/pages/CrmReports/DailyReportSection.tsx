@@ -38,7 +38,6 @@ interface LeadItem {
   leadName: string;
   company: string | null;
   staff: string | null;
-  stage: string | null;
   status: string | null;
   phone: string | null;
   source: string | null;
@@ -378,12 +377,12 @@ function ReportTable({
 
 // Same internal scroll/pagination convention as ReportTable, but for raw
 // Leads (created within the range) rather than activity rows — a genuinely
-// different shape (stage/status/phone/source instead of subject/scheduled),
-// so it isn't worth forcing through ReportTable's activity-shaped columns.
-// Status/Note/Call status are shown inline (not just Stage) so the row is a
-// full glance without opening the lead. `bare` drops this table's own card
-// chrome when it's nested inside another card (the "Leads assigned per
-// staff" box) instead of standing alone.
+// different shape (status/phone/source instead of subject/scheduled), so
+// it isn't worth forcing through ReportTable's activity-shaped columns.
+// Status/Note/Call status are shown inline so the row is a full glance
+// without opening the lead. `bare` drops this table's own card chrome when
+// it's nested inside another card (the "Leads assigned per staff" box)
+// instead of standing alone.
 function LeadsTable({
   items,
   leadLink,
@@ -414,7 +413,6 @@ function LeadsTable({
             <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
               <th className="px-4 pb-2">Lead</th>
               <th className="px-2 pb-2">Staff</th>
-              <th className="px-2 pb-2">Stage</th>
               <th className="px-2 pb-2">Status</th>
               <th className="px-2 pb-2">Call status</th>
               <th className="px-2 pb-2">Phone</th>
@@ -433,7 +431,6 @@ function LeadsTable({
                   <div className="text-xs text-slate-400">{l.company}</div>
                 </td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.staff ?? "Unassigned"}</td>
-                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.stage ?? "—"}</td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.status ?? "—"}</td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.callStatus ?? "—"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.phone ?? "—"}</td>
@@ -444,7 +441,7 @@ function LeadsTable({
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
                   {emptyLabel}
                 </td>
               </tr>
