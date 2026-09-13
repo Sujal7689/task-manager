@@ -25,7 +25,7 @@ interface DailySection {
   items: DailyItem[];
 }
 
-interface CallsYesterdaySection extends DailySection {
+interface CallsSection extends DailySection {
   missed: number;
 }
 
@@ -38,10 +38,9 @@ interface DailyReport {
   fromDate: string;
   toDate: string;
   leadsAssigned: LeadsAssignedRow[];
-  completedYesterday: DailySection;
-  dueToday: DailySection;
-  callsYesterday: CallsYesterdaySection;
-  callsToday: DailySection;
+  completed: DailySection;
+  due: DailySection;
+  calls: CallsSection;
 }
 
 const PIE_COLORS = [CATEGORICAL.blue, CATEGORICAL.aqua, CATEGORICAL.orange, CATEGORICAL.yellow, CATEGORICAL.magenta, CATEGORICAL.green, CATEGORICAL.violet, CATEGORICAL.red];
@@ -54,22 +53,28 @@ function nepalDateStr(daysAgo: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function formatDay(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-}
 function formatShort(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-// Client-confirmed scope: CRM Leads/Calls only. The four tables sit in a
-// 2-up grid, each a fixed-height card with its own internal scroll +
-// pagination (same convention as the Dashboard widgets) — the point is
-// everything fits on one screen at a glance for the morning meeting, paging
-// through a section's rows rather than scrolling far down the whole page.
-// From/To are independently-chosen days (a genuine range, not forced to be
-// adjacent): "completed"/"calls that happened" reads from `from`, "due"/
-// "calls scheduled" reads from `to` — same roles yesterday/today played
-// before, just user-selectable, so a past morning meeting can be reviewed.
+// A single day reads as "Friday, September 12, 2026"; a real range reads as
+// "Sep 1 – Sep 10, 2026" — the report covers every day in between either way.
+function formatRange(fromIso: string, toIso: string) {
+  if (fromIso.slice(0, 10) === toIso.slice(0, 10)) {
+    return new Date(fromIso).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  }
+  const year = new Date(toIso).getFullYear();
+  return `${formatShort(fromIso)} – ${formatShort(toIso)}, ${year}`;
+}
+
+// Client-confirmed scope: CRM Leads/Calls only. From/To define a genuine
+// inclusive date range (defaulting to actual yesterday..today) — every
+// section below (Tasks completed, Tasks due, Calls) covers the *entire*
+// range, not just its two endpoints, so a whole week or month can be
+// reviewed, not only a single day. The three tables sit in a grid, each a
+// fixed-height card with its own internal scroll + pagination (same
+// convention as the Dashboard widgets) — everything fits on one screen at a
+// glance, paging through a section's rows rather than scrolling past it.
 export default function DailyReportSection() {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [fromDate, setFromDate] = useState(nepalDateStr(1));
@@ -90,7 +95,7 @@ export default function DailyReportSection() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Daily Report</h2>
-          <p className="text-sm text-slate-500">for the morning meeting (Nepal time)</p>
+          <p className="text-sm text-slate-500">{formatRange(report.fromDate, report.toDate)} (Nepal time)</p>
         </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-slate-500">From</label>
@@ -112,18 +117,9 @@ export default function DailyReportSection() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <OverviewStat
-          label="Leads assigned"
-          value={report.leadsAssigned.reduce((s, r) => s + r.count, 0)}
-        />
-        <OverviewStat
-          label="Tasks (completed + due)"
-          value={report.completedYesterday.total + report.dueToday.total}
-        />
-        <OverviewStat
-          label="Calls (both days)"
-          value={report.callsYesterday.total + report.callsToday.total}
-        />
+        <OverviewStat label="Leads assigned" value={report.leadsAssigned.reduce((s, r) => s + r.count, 0)} />
+        <OverviewStat label="Tasks (completed + due)" value={report.completed.total + report.due.total} />
+        <OverviewStat label="Calls" value={report.calls.total} />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -142,39 +138,27 @@ export default function DailyReportSection() {
         )}
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <PieCard title={`Completed ${formatShort(report.fromDate)} (${report.completedYesterday.total})`} data={report.completedYesterday.byStaff} />
-        <PieCard title={`Calls ${formatShort(report.fromDate)} (${report.callsYesterday.total})`} data={report.callsYesterday.byStaff} />
-        <PieCard title={`Due ${formatShort(report.toDate)} (${report.dueToday.total})`} data={report.dueToday.byStaff} />
-        <PieCard title={`Calls ${formatShort(report.toDate)} (${report.callsToday.total})`} data={report.callsToday.byStaff} />
+      <div className="grid sm:grid-cols-3 gap-4">
+        <PieCard title={`Tasks completed (${report.completed.total})`} data={report.completed.byStaff} />
+        <PieCard title={`Tasks due (${report.due.total})`} data={report.due.byStaff} />
+        <PieCard title={`Calls (${report.calls.total})`} data={report.calls.byStaff} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
         <ReportTable
-          title={`Tasks completed (${formatDay(report.fromDate)})`}
-          items={report.completedYesterday.items}
+          title="Tasks completed"
+          items={report.completed.items}
           leadLink={leadLink}
-          emptyLabel="No tasks were marked completed."
+          emptyLabel="No tasks were marked completed in this range."
         />
+        <ReportTable title="Tasks due" items={report.due.items} leadLink={leadLink} emptyLabel="No open tasks are due in this range." />
         <ReportTable
-          title={`Calls that were supposed to happen (${formatDay(report.fromDate)})`}
-          subtitle={report.callsYesterday.missed > 0 ? `${report.callsYesterday.missed} still show as not completed` : undefined}
-          items={report.callsYesterday.items}
+          title="Calls"
+          subtitle={report.calls.missed > 0 ? `${report.calls.missed} still show as not completed` : undefined}
+          items={report.calls.items}
           leadLink={leadLink}
-          emptyLabel="No calls were scheduled."
+          emptyLabel="No calls were scheduled in this range."
           flagMissed
-        />
-        <ReportTable
-          title={`Tasks due (${formatDay(report.toDate)})`}
-          items={report.dueToday.items}
-          leadLink={leadLink}
-          emptyLabel="No open tasks are due."
-        />
-        <ReportTable
-          title={`Calls — who's assigned (${formatDay(report.toDate)})`}
-          items={report.callsToday.items}
-          leadLink={leadLink}
-          emptyLabel="No calls scheduled."
         />
       </div>
     </div>
