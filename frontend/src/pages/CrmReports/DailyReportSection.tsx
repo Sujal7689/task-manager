@@ -266,16 +266,39 @@ function ReportTable({
   fullWidth?: boolean;
 }) {
   const [page, setPage] = useState(1);
-  const totalPages = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
-  const pageItems = items.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+  // Only meaningful where flagMissed applies (Calls) — Completed vs. the
+  // rest, matching the same "missed" definition already used for the
+  // amber-row highlighting below.
+  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "incomplete">("all");
+  const filteredItems = !flagMissed || statusFilter === "all"
+    ? items
+    : items.filter((it) => (statusFilter === "completed" ? it.status === "Completed" : it.status !== "Completed"));
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ROWS_PER_PAGE));
+  const pageItems = filteredItems.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
 
   return (
     <div className={`bg-white border border-slate-200 rounded-xl overflow-hidden h-[420px] flex flex-col ${fullWidth ? "lg:col-span-2" : ""}`}>
-      <div className="px-4 pt-4 pb-2 shrink-0">
-        <h3 className="font-medium text-slate-900">
-          {title} <span className="text-sm font-normal text-slate-400">({items.length})</span>
-        </h3>
-        {subtitle && <p className="text-xs text-amber-600">{subtitle}</p>}
+      <div className="px-4 pt-4 pb-2 shrink-0 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-medium text-slate-900">
+            {title} <span className="text-sm font-normal text-slate-400">({filteredItems.length})</span>
+          </h3>
+          {subtitle && <p className="text-xs text-amber-600">{subtitle}</p>}
+        </div>
+        {flagMissed && (
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as "all" | "completed" | "incomplete");
+              setPage(1);
+            }}
+            className="input w-auto py-1 text-xs"
+          >
+            <option value="all">All</option>
+            <option value="completed">Completed only</option>
+            <option value="incomplete">Not completed only</option>
+          </select>
+        )}
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-sm">
@@ -315,10 +338,10 @@ function ReportTable({
                 </tr>
               );
             })}
-            {items.length === 0 && (
+            {filteredItems.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
-                  {emptyLabel}
+                  {items.length === 0 ? emptyLabel : "No rows match this filter."}
                 </td>
               </tr>
             )}
@@ -326,7 +349,7 @@ function ReportTable({
         </table>
       </div>
       <div className="shrink-0">
-        <Pagination page={page} totalPages={totalPages} total={items.length} pageSize={ROWS_PER_PAGE} onPageChange={setPage} />
+        <Pagination page={page} totalPages={totalPages} total={filteredItems.length} pageSize={ROWS_PER_PAGE} onPageChange={setPage} />
       </div>
     </div>
   );

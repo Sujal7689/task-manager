@@ -516,6 +516,11 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   Leads/Calls only per client confirmation (not the internal Task app), and
   deliberately ignores the leads-since cutoff filter used everywhere else —
   work matters regardless of how old the underlying lead is.
+  - **Calls table status filter (2026-09-13)**: an All/Completed
+    only/Not completed only dropdown local to the Calls card (client-side,
+    doesn't refetch) — the card mixes both statuses by default with missed
+    ones flagged amber, but this lets you isolate just the completed or
+    just the still-outstanding calls within the current date range.
   - **Comparison bar charts, not per-metric pies (2026-09-13)**: "Tasks
     completed (23)" and "Tasks due (3)" used to be two separate pies, each
     only showing its own 100%-of-itself split by staff — useless for
