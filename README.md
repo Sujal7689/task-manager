@@ -524,16 +524,27 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
     "Leads assigned per staff" card, below the per-staff badges — same
     leads as that count/breakdown (created within the selected range,
     filtered on `zohoCreatedTime`), but one row per lead: Lead (links to
-    Lead-wise), Staff, Status (`leadStatus`), Call status (the lead's most
-    recent CALL activity's status), Phone, Source, Created, Latest note —
-    shown inline so the row is a full glance without opening the lead (no
-    separate Stage column — `leadStatus` already covers it more legibly
-    than the bucketed `funnelStage` enum value would). Own component (`LeadsTable`
+    Lead-wise), Staff, Status (`leadStatus`), Call status, Call date & time,
+    Next follow up, Phone, Created, Latest note — shown inline so the row
+    is a full glance without opening the lead (no separate Stage column —
+    `leadStatus` already covers it more legibly than the bucketed
+    `funnelStage` enum value would; no Source column, dropped per client
+    request). Own component (`LeadsTable`
     in `DailyReportSection.tsx`, with a `bare` mode that drops its own card
     chrome when nested like this) rather than reusing `ReportTable`, since a
     Lead's natural columns don't match an activity row's
     (subject/status/scheduled). Backed by a new `leads: { total, items }`
     field on `GET /crm-lead-reports/daily`.
+    - **Call status/date and Next follow up (2026-09-13)**: Call status
+      reflects the lead's most recent CALL activity (by `occurredAt`) —
+      absent entirely (no CALL activity ever synced for this lead) reads as
+      **"Not Started"**, not a blank dash. Call date & time is separate:
+      it's only the `occurredAt` of the most recent *Completed* call — a
+      merely-scheduled-but-not-yet-made call has a status but no "done at"
+      time, so this column stays blank until one actually goes through.
+      Next follow up is the soonest still-open TASK's due date for the
+      lead, so the next thing to do doesn't require opening the separate
+      Tasks due table.
   - **Calls table status filter (2026-09-13)**: an All/Completed
     only/Not completed only dropdown local to the Calls card (client-side,
     doesn't refetch) — the card mixes both statuses by default with missed

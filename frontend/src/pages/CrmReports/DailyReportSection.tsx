@@ -40,10 +40,11 @@ interface LeadItem {
   staff: string | null;
   status: string | null;
   phone: string | null;
-  source: string | null;
   createdAt: string;
   latestNote: string | null;
   callStatus: string | null;
+  callAt: string | null;
+  nextFollowUp: string | null;
 }
 
 interface LeadsSection {
@@ -424,8 +425,9 @@ function LeadsTable({
               <th className="px-2 pb-2">Staff</th>
               <th className="px-2 pb-2">Status</th>
               <th className="px-2 pb-2">Call status</th>
+              <th className="px-2 pb-2">Call date &amp; time</th>
+              <th className="px-2 pb-2">Next follow up</th>
               <th className="px-2 pb-2">Phone</th>
-              <th className="px-2 pb-2">Source</th>
               <th className="px-2 pb-2">Created</th>
               <th className="px-4 pb-2">Latest note</th>
             </tr>
@@ -441,16 +443,19 @@ function LeadsTable({
                 </td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.staff ?? "Unassigned"}</td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.status ?? "—"}</td>
-                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.callStatus ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.callStatus ?? "Not Started"}</td>
+                <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.callAt ? new Date(l.callAt).toLocaleString() : "—"}</td>
+                <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">
+                  {l.nextFollowUp ? new Date(l.nextFollowUp).toLocaleString() : "—"}
+                </td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.phone ?? "—"}</td>
-                <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.source ?? "—"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{new Date(l.createdAt).toLocaleString()}</td>
                 <td className="px-4 py-2 text-slate-600 text-xs max-w-[220px]">{l.latestNote ?? "—"}</td>
               </tr>
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
                   {emptyLabel}
                 </td>
               </tr>

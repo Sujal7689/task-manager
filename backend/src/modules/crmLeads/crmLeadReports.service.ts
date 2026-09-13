@@ -753,18 +753,42 @@ async function latestNotesForLeads(leadIds: string[]): Promise<Map<string, strin
 }
 
 // Mirrors latestNotesForLeads above but for the lead's most recent CALL
-// activity's status — lets the Leads table show "how did the last call with
-// this lead go" (Completed/Scheduled/etc.) inline, without opening the lead.
-async function latestCallStatusForLeads(leadIds: string[]): Promise<Map<string, string>> {
+// activity — lets the Leads table show "how did the last call with this
+// lead go" (Completed/Scheduled/etc.) and, separately, *when* it actually
+// happened (only meaningful once a call has actually gone through — a
+// merely-scheduled call has no "done at" time), inline without opening the
+// lead. No call activity at all (leadId absent from the map) reads as
+// "Not Started" on the frontend.
+async function latestCallInfoForLeads(leadIds: string[]): Promise<Map<string, { status: string; completedAt: Date | null }>> {
   if (leadIds.length === 0) return new Map();
   const calls = await prisma.crmLeadActivity.findMany({
     where: { activityType: "CALL", leadId: { in: leadIds } },
     select: { leadId: true, status: true, occurredAt: true },
     orderBy: { occurredAt: "desc" },
   });
-  const byLead = new Map<string, string>();
+  const byLead = new Map<string, { status: string; completedAt: Date | null }>();
   for (const c of calls) {
-    if (!byLead.has(c.leadId) && c.status) byLead.set(c.leadId, c.status);
+    if (!c.status) continue;
+    const entry = byLead.get(c.leadId);
+    if (!entry) byLead.set(c.leadId, { status: c.status, completedAt: c.status === "Completed" ? c.occurredAt : null });
+    else if (entry.completedAt === null && c.status === "Completed") entry.completedAt = c.occurredAt;
+  }
+  return byLead;
+}
+
+// The nearest still-open TASK due date for a lead — "what's the next thing
+// to do here," shown as its own column so it doesn't have to be read off
+// the separate Tasks due table.
+async function nextFollowUpForLeads(leadIds: string[]): Promise<Map<string, Date>> {
+  if (leadIds.length === 0) return new Map();
+  const tasks = await prisma.crmLeadActivity.findMany({
+    where: { activityType: "TASK", status: { not: "Completed" }, leadId: { in: leadIds }, dueDate: { not: null } },
+    select: { leadId: true, dueDate: true },
+    orderBy: { dueDate: "asc" },
+  });
+  const byLead = new Map<string, Date>();
+  for (const t of tasks) {
+    if (!byLead.has(t.leadId) && t.dueDate) byLead.set(t.leadId, t.dueDate);
   }
   return byLead;
 }
@@ -781,10 +805,11 @@ export interface DailyLeadItem {
   staff: string | null;
   status: string | null;
   phone: string | null;
-  source: string | null;
   createdAt: Date;
   latestNote: string | null;
   callStatus: string | null;
+  callAt: Date | null;
+  nextFollowUp: Date | null;
 }
 
 export interface TaskStaffComparisonRow {
@@ -850,14 +875,16 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     // table alongside Tasks/Calls, not just the per-staff count widget.
     prisma.crmLead.findMany({
       where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range },
-      select: { id: true, fullName: true, company: true, staffName: true, leadStatus: true, phone: true, leadSource: true, zohoCreatedTime: true },
+      select: { id: true, fullName: true, company: true, staffName: true, leadStatus: true, phone: true, zohoCreatedTime: true },
       orderBy: { zohoCreatedTime: "desc" },
     }),
   ]);
 
   const allLeadIds = Array.from(new Set([...completedRaw, ...dueRaw, ...callsRaw, ...leadsListRaw.map((l) => ({ leadId: l.id }))].map((a) => a.leadId)));
   const notesByLead = await latestNotesForLeads(allLeadIds);
-  const callStatusByLead = await latestCallStatusForLeads(leadsListRaw.map((l) => l.id));
+  const leadOnlyIds = leadsListRaw.map((l) => l.id);
+  const callInfoByLead = await latestCallInfoForLeads(leadOnlyIds);
+  const nextFollowUpByLead = await nextFollowUpForLeads(leadOnlyIds);
 
   const completed = toDailyItems(completedRaw, notesByLead);
   const due = toDailyItems(dueRaw, notesByLead);
@@ -878,8 +905,9 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     status: l.leadStatus,
     phone: l.phone,
     latestNote: notesByLead.get(l.id) ?? null,
-    callStatus: callStatusByLead.get(l.id) ?? null,
-    source: l.leadSource,
+    callStatus: callInfoByLead.get(l.id)?.status ?? null,
+    callAt: callInfoByLead.get(l.id)?.completedAt ?? null,
+    nextFollowUp: nextFollowUpByLead.get(l.id) ?? null,
     createdAt: l.zohoCreatedTime as Date,
   }));
 
