@@ -159,6 +159,7 @@ export default function DailyReportSection() {
           leadLink={leadLink}
           emptyLabel="No calls were scheduled in this range."
           flagMissed
+          fullWidth
         />
       </div>
     </div>
@@ -220,6 +221,7 @@ function ReportTable({
   leadLink,
   emptyLabel,
   flagMissed = false,
+  fullWidth = false,
 }: {
   title: string;
   subtitle?: string;
@@ -227,13 +229,17 @@ function ReportTable({
   leadLink: (id: string) => string;
   emptyLabel: string;
   flagMissed?: boolean;
+  // Spans both grid columns instead of sharing one — for a table that's the
+  // odd one out in the 2-up grid (nothing to its right), or that simply
+  // benefits from the extra width for its column count.
+  fullWidth?: boolean;
 }) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
   const pageItems = items.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden h-[420px] flex flex-col">
+    <div className={`bg-white border border-slate-200 rounded-xl overflow-hidden h-[420px] flex flex-col ${fullWidth ? "lg:col-span-2" : ""}`}>
       <div className="px-4 pt-4 pb-2 shrink-0">
         <h3 className="font-medium text-slate-900">
           {title} <span className="text-sm font-normal text-slate-400">({items.length})</span>
