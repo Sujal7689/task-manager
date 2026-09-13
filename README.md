@@ -516,6 +516,10 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   Leads/Calls only per client confirmation (not the internal Task app), and
   deliberately ignores the leads-since cutoff filter used everywhere else —
   work matters regardless of how old the underlying lead is.
+  - **Overview stat breakdowns (2026-09-13)**: the Tasks and Calls overview
+    cards now show a "X completed · Y due"/"X completed · Y missed"
+    subtitle under the combined total, instead of just one number that
+    hides whether it's mostly done or mostly outstanding.
   - **Leads table (2026-09-13)**: a row-level table nested inside the
     "Leads assigned per staff" card, below the per-staff badges — same
     leads as that count/breakdown (created within the selected range,

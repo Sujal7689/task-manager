@@ -148,8 +148,16 @@ export default function DailyReportSection() {
 
       <div className="grid grid-cols-3 gap-4">
         <OverviewStat label="Leads" value={report.leads.total} />
-        <OverviewStat label="Tasks (completed + due)" value={report.completed.total + report.due.total} />
-        <OverviewStat label="Calls" value={report.calls.total} />
+        <OverviewStat
+          label="Tasks (completed + due)"
+          value={report.completed.total + report.due.total}
+          breakdown={`${report.completed.total} completed · ${report.due.total} due`}
+        />
+        <OverviewStat
+          label="Calls"
+          value={report.calls.total}
+          breakdown={`${report.calls.total - report.calls.missed} completed · ${report.calls.missed} missed`}
+        />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -210,11 +218,12 @@ export default function DailyReportSection() {
   );
 }
 
-function OverviewStat({ label, value }: { label: string; value: number }) {
+function OverviewStat({ label, value, breakdown }: { label: string; value: number; breakdown?: string }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="text-2xl font-semibold text-slate-900 mt-1">{value}</p>
+      {breakdown && <p className="text-xs text-slate-400 mt-1">{breakdown}</p>}
     </div>
   );
 }
