@@ -506,9 +506,9 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   dashboard/grouped-by-staff`.)
 - **Daily Report tab** — a fourth CRM Reports tab, designed to fit on one
   screen for the morning meeting rather than one long scroll: an overview
-  row (total leads assigned / tasks / calls), a "leads assigned per staff"
-  breakdown, 2 comparison bar charts, and 3 tables (Tasks completed, Tasks
-  due, Calls), each a fixed-height card with its own internal scroll +
+  row (total leads / tasks / calls), a "leads assigned per staff"
+  breakdown, 2 comparison bar charts, and 4 tables (Leads, Tasks completed,
+  Tasks due, Calls), each a fixed-height card with its own internal scroll +
   pagination (same convention as the Dashboard widgets) rather than growing
   the page — you page through a section's rows instead of scrolling past
   it. The Calls table spans both grid columns (`lg:col-span-2`) since it's
@@ -516,6 +516,19 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   Leads/Calls only per client confirmation (not the internal Task app), and
   deliberately ignores the leads-since cutoff filter used everywhere else —
   work matters regardless of how old the underlying lead is.
+  - **Leads table (2026-09-13)**: a row-level table nested inside the
+    "Leads assigned per staff" card, below the per-staff badges — same
+    leads as that count/breakdown (created within the selected range,
+    filtered on `zohoCreatedTime`), but one row per lead: Lead (links to
+    Lead-wise), Staff, Stage (`funnelStage`), Status (`leadStatus`), Call
+    status (the lead's most recent CALL activity's status), Phone, Source,
+    Created, Latest note — status/note/call-status shown inline so the row
+    is a full glance without opening the lead. Own component (`LeadsTable`
+    in `DailyReportSection.tsx`, with a `bare` mode that drops its own card
+    chrome when nested like this) rather than reusing `ReportTable`, since a
+    Lead's natural columns don't match an activity row's
+    (subject/status/scheduled). Backed by a new `leads: { total, items }`
+    field on `GET /crm-lead-reports/daily`.
   - **Calls table status filter (2026-09-13)**: an All/Completed
     only/Not completed only dropdown local to the Calls card (client-side,
     doesn't refetch) — the card mixes both statuses by default with missed
@@ -722,7 +735,7 @@ All endpoints under `/api` except `/api/auth/login` require
 - `GET /api/crm-lead-reports/dashboard/grouped-by-staff` — every lead grouped by owner, for the Dashboard's "By Staff" view
 - `GET /api/crm-lead-reports/leads`, `GET /api/crm-lead-reports/leads/:id` — Lead-wise tab (selector + merged activity timeline, `?type=` filters to one activity type and hides stage/owner-change entries)
 - `GET /api/crm-lead-reports/staff` — Staff-wise tab's default overview (leads owned, conversion rate, activities logged, last activity per `staffName` — no one needs to be selected first), `GET /api/crm-lead-reports/staff/:staffName` for the drill-down detail (path segment is the Staff Name field's value, URL-encoded — not Owner)
-- `GET /api/crm-lead-reports/daily` — Daily Report tab (tasks completed, tasks due, calls, by staff — Nepal-time boundaries, ignores the leads-since date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — and `?from=&to=`, a genuine inclusive date range defaulting to actual yesterday/today, covering every day in between, not just the two endpoints)
+- `GET /api/crm-lead-reports/daily` — Daily Report tab (leads created, tasks completed, tasks due, calls, by staff — Nepal-time boundaries, ignores the leads-since date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — and `?from=&to=`, a genuine inclusive date range defaulting to actual yesterday/today, covering every day in between, not just the two endpoints)
 - `GET /api/crm-lead-reports/closure?period=day|week|month` — Closure Report tab (activities closed + deals converted per staff, Nepal-time period bounds; accepts `?staffName=`)
 
 **Phase 6 — admin & audit**

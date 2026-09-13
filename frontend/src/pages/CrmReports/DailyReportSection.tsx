@@ -33,6 +33,25 @@ interface LeadsAssignedRow {
   count: number;
 }
 
+interface LeadItem {
+  leadId: string;
+  leadName: string;
+  company: string | null;
+  staff: string | null;
+  stage: string | null;
+  status: string | null;
+  phone: string | null;
+  source: string | null;
+  createdAt: string;
+  latestNote: string | null;
+  callStatus: string | null;
+}
+
+interface LeadsSection {
+  total: number;
+  items: LeadItem[];
+}
+
 interface TaskComparisonRow {
   staff: string;
   completed: number;
@@ -51,6 +70,7 @@ interface DailyReport {
   leadsAssigned: LeadsAssignedRow[];
   taskComparison: TaskComparisonRow[];
   callComparison: CallComparisonRow[];
+  leads: LeadsSection;
   completed: DailySection;
   due: DailySection;
   calls: CallsSection;
@@ -128,7 +148,7 @@ export default function DailyReportSection() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <OverviewStat label="Leads assigned" value={report.leadsAssigned.reduce((s, r) => s + r.count, 0)} />
+        <OverviewStat label="Leads" value={report.leads.total} />
         <OverviewStat label="Tasks (completed + due)" value={report.completed.total + report.due.total} />
         <OverviewStat label="Calls" value={report.calls.total} />
       </div>
@@ -136,9 +156,9 @@ export default function DailyReportSection() {
       <div className="bg-white border border-slate-200 rounded-xl p-4">
         <h3 className="text-sm font-medium text-slate-700 mb-3">Leads assigned per staff</h3>
         {report.leadsAssigned.length === 0 ? (
-          <p className="text-xs text-slate-400">No leads have a Staff Name assigned yet.</p>
+          <p className="text-xs text-slate-400 mb-3">No leads have a Staff Name assigned yet.</p>
         ) : (
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 mb-4">
             {report.leadsAssigned.map((r) => (
               <div key={r.staff} className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 min-w-[120px]">
                 <p className="text-xs text-slate-500">{r.staff}</p>
@@ -147,6 +167,7 @@ export default function DailyReportSection() {
             ))}
           </div>
         )}
+        <LeadsTable items={report.leads.items} leadLink={leadLink} emptyLabel="No leads were created in this range." bare />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -350,6 +371,89 @@ function ReportTable({
       </div>
       <div className="shrink-0">
         <Pagination page={page} totalPages={totalPages} total={filteredItems.length} pageSize={ROWS_PER_PAGE} onPageChange={setPage} />
+      </div>
+    </div>
+  );
+}
+
+// Same internal scroll/pagination convention as ReportTable, but for raw
+// Leads (created within the range) rather than activity rows — a genuinely
+// different shape (stage/status/phone/source instead of subject/scheduled),
+// so it isn't worth forcing through ReportTable's activity-shaped columns.
+// Status/Note/Call status are shown inline (not just Stage) so the row is a
+// full glance without opening the lead. `bare` drops this table's own card
+// chrome when it's nested inside another card (the "Leads assigned per
+// staff" box) instead of standing alone.
+function LeadsTable({
+  items,
+  leadLink,
+  emptyLabel,
+  bare = false,
+}: {
+  items: LeadItem[];
+  leadLink: (id: string) => string;
+  emptyLabel: string;
+  bare?: boolean;
+}) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
+  const pageItems = items.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
+  return (
+    <div className={`overflow-hidden h-[420px] flex flex-col ${bare ? "" : "bg-white border border-slate-200 rounded-xl"}`}>
+      {!bare && (
+        <div className="px-4 pt-4 pb-2 shrink-0">
+          <h3 className="font-medium text-slate-900">
+            Leads <span className="text-sm font-normal text-slate-400">({items.length})</span>
+          </h3>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-white">
+            <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+              <th className="px-4 pb-2">Lead</th>
+              <th className="px-2 pb-2">Staff</th>
+              <th className="px-2 pb-2">Stage</th>
+              <th className="px-2 pb-2">Status</th>
+              <th className="px-2 pb-2">Call status</th>
+              <th className="px-2 pb-2">Phone</th>
+              <th className="px-2 pb-2">Source</th>
+              <th className="px-2 pb-2">Created</th>
+              <th className="px-4 pb-2">Latest note</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {pageItems.map((l) => (
+              <tr key={l.leadId}>
+                <td className="px-4 py-2">
+                  <Link to={leadLink(l.leadId)} className="font-medium text-slate-800 hover:underline">
+                    {l.leadName}
+                  </Link>
+                  <div className="text-xs text-slate-400">{l.company}</div>
+                </td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.staff ?? "Unassigned"}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.stage ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.status ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.callStatus ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.phone ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.source ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{new Date(l.createdAt).toLocaleString()}</td>
+                <td className="px-4 py-2 text-slate-600 text-xs max-w-[220px]">{l.latestNote ?? "—"}</td>
+              </tr>
+            ))}
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
+                  {emptyLabel}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="shrink-0">
+        <Pagination page={page} totalPages={totalPages} total={items.length} pageSize={ROWS_PER_PAGE} onPageChange={setPage} />
       </div>
     </div>
   );

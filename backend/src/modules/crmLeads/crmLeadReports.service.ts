@@ -752,9 +752,40 @@ async function latestNotesForLeads(leadIds: string[]): Promise<Map<string, strin
   return byLead;
 }
 
+// Mirrors latestNotesForLeads above but for the lead's most recent CALL
+// activity's status — lets the Leads table show "how did the last call with
+// this lead go" (Completed/Scheduled/etc.) inline, without opening the lead.
+async function latestCallStatusForLeads(leadIds: string[]): Promise<Map<string, string>> {
+  if (leadIds.length === 0) return new Map();
+  const calls = await prisma.crmLeadActivity.findMany({
+    where: { activityType: "CALL", leadId: { in: leadIds } },
+    select: { leadId: true, status: true, occurredAt: true },
+    orderBy: { occurredAt: "desc" },
+  });
+  const byLead = new Map<string, string>();
+  for (const c of calls) {
+    if (!byLead.has(c.leadId) && c.status) byLead.set(c.leadId, c.status);
+  }
+  return byLead;
+}
+
 export interface LeadsAssignedRow {
   staff: string;
   count: number;
+}
+
+export interface DailyLeadItem {
+  leadId: string;
+  leadName: string;
+  company: string | null;
+  staff: string | null;
+  stage: string | null;
+  status: string | null;
+  phone: string | null;
+  source: string | null;
+  createdAt: Date;
+  latestNote: string | null;
+  callStatus: string | null;
 }
 
 export interface TaskStaffComparisonRow {
@@ -780,7 +811,7 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
   const nameCond = scopedNameFilter(staffName, scope);
   const leadStaffFilter = nameCond !== undefined ? { lead: { staffName: nameCond } } : {};
 
-  const [completedRaw, dueRaw, callsRaw, leadsAssignedRaw] = await Promise.all([
+  const [completedRaw, dueRaw, callsRaw, leadsAssignedRaw, leadsListRaw] = await Promise.all([
     // Tasks whose status turned Completed, last touched anywhere in the
     // range (Modified_Time is what occurredAt is set from for TASK
     // activities). Credited to the lead's Staff Name — see module comment above.
@@ -816,10 +847,18 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
       where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range },
       _count: { _all: true },
     }),
+    // Same set of leads as leadsAssignedRaw, but row-by-row — a "Leads"
+    // table alongside Tasks/Calls, not just the per-staff count widget.
+    prisma.crmLead.findMany({
+      where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range },
+      select: { id: true, fullName: true, company: true, staffName: true, funnelStage: true, leadStatus: true, phone: true, leadSource: true, zohoCreatedTime: true },
+      orderBy: { zohoCreatedTime: "desc" },
+    }),
   ]);
 
-  const allLeadIds = Array.from(new Set([...completedRaw, ...dueRaw, ...callsRaw].map((a) => a.leadId)));
+  const allLeadIds = Array.from(new Set([...completedRaw, ...dueRaw, ...callsRaw, ...leadsListRaw.map((l) => ({ leadId: l.id }))].map((a) => a.leadId)));
   const notesByLead = await latestNotesForLeads(allLeadIds);
+  const callStatusByLead = await latestCallStatusForLeads(leadsListRaw.map((l) => l.id));
 
   const completed = toDailyItems(completedRaw, notesByLead);
   const due = toDailyItems(dueRaw, notesByLead);
@@ -831,6 +870,20 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     .filter((r) => r.staffName)
     .map((r) => ({ staff: r.staffName as string, count: r._count._all }))
     .sort((a, b) => b.count - a.count);
+
+  const leads: DailyLeadItem[] = leadsListRaw.map((l) => ({
+    leadId: l.id,
+    leadName: l.fullName ?? l.company ?? "(unnamed lead)",
+    company: l.company,
+    staff: l.staffName,
+    stage: l.funnelStage,
+    status: l.leadStatus,
+    phone: l.phone,
+    latestNote: notesByLead.get(l.id) ?? null,
+    callStatus: callStatusByLead.get(l.id) ?? null,
+    source: l.leadSource,
+    createdAt: l.zohoCreatedTime as Date,
+  }));
 
   const taskComparison: TaskStaffComparisonRow[] = combineByStaff(completed, due).map((r) => ({
     staff: r.staff,
@@ -849,6 +902,7 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     leadsAssigned,
     taskComparison,
     callComparison,
+    leads: { total: leads.length, items: leads },
     completed: { total: completed.length, items: completed },
     due: { total: due.length, items: due },
     calls: { total: calls.length, missed: callsMissed.length, items: calls },
