@@ -745,46 +745,54 @@ export interface LeadsAssignedRow {
   count: number;
 }
 
-export async function getDailyReport(staffName?: string, scope?: string[] | null, anchorDate?: Date) {
-  const yesterday = kathmanduDayBounds(1, anchorDate);
-  const today = kathmanduDayBounds(0, anchorDate);
+// `fromDate`/`toDate` are independently-chosen calendar days (a genuine
+// From/To pair, not forced to be adjacent) — each still resolves to exactly
+// one full Nepal-local day via kathmanduDayBounds. Defaults to actual
+// yesterday/today when omitted, preserving the original "morning meeting"
+// behavior. The "completed"/"calls that happened" side of the report reads
+// from `fromDate`; the "due"/"calls scheduled" side reads from `toDate` —
+// same roles "yesterday" and "today" played before, just user-selectable.
+export async function getDailyReport(staffName?: string, scope?: string[] | null, fromDate?: Date, toDate?: Date) {
+  const from = kathmanduDayBounds(fromDate ? 0 : 1, fromDate);
+  const to = kathmanduDayBounds(0, toDate);
   const leadSelect = { select: { fullName: true, company: true, staffName: true } } as const;
   const nameCond = scopedNameFilter(staffName, scope);
   const leadStaffFilter = nameCond !== undefined ? { lead: { staffName: nameCond } } : {};
 
-  const [completedYesterdayRaw, dueTodayRaw, callsYesterdayRaw, callsTodayRaw, leadsAssignedRaw] = await Promise.all([
-    // Tasks whose status turned Completed, last touched yesterday (Modified_Time is what occurredAt is set from for TASK activities).
+  const [completedFromRaw, dueToRaw, callsFromRaw, callsToRaw, leadsAssignedRaw] = await Promise.all([
+    // Tasks whose status turned Completed, last touched on the "from" day
+    // (Modified_Time is what occurredAt is set from for TASK activities).
     // Credited to the lead's Staff Name — see module comment above.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "TASK", status: "Completed", occurredAt: { gte: yesterday.start, lt: yesterday.end }, ...leadStaffFilter },
+      where: { activityType: "TASK", status: "Completed", occurredAt: { gte: from.start, lt: from.end }, ...leadStaffFilter },
       orderBy: { occurredAt: "desc" },
       include: { lead: leadSelect },
     }),
-    // Open tasks (not Completed) due today. Credited to the lead's Staff Name.
+    // Open tasks (not Completed) due on the "to" day. Credited to the lead's Staff Name.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "TASK", status: { not: "Completed" }, dueDate: { gte: today.start, lt: today.end }, ...leadStaffFilter },
+      where: { activityType: "TASK", status: { not: "Completed" }, dueDate: { gte: to.start, lt: to.end }, ...leadStaffFilter },
       orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
     }),
-    // Every call that was *supposed* to happen yesterday (dueDate = Call_Start_Time,
-    // yesterday) — `status` tells you whether it actually got made ("Completed",
-    // i.e. moved to Calls_History) or was missed (still "Scheduled"). Credited
-    // to the lead's Staff Name.
+    // Every call that was *supposed* to happen on the "from" day (dueDate =
+    // Call_Start_Time) — `status` tells you whether it actually got made
+    // ("Completed", i.e. moved to Calls_History) or was missed (still
+    // "Scheduled"). Credited to the lead's Staff Name.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "CALL", dueDate: { gte: yesterday.start, lt: yesterday.end }, ...leadStaffFilter },
+      where: { activityType: "CALL", dueDate: { gte: from.start, lt: from.end }, ...leadStaffFilter },
       orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
     }),
-    // Every call scheduled for today, regardless of whether it's already
-    // happened — "who's got which calls today" is the point, not just what's
-    // left. Credited to the lead's Staff Name.
+    // Every call scheduled for the "to" day, regardless of whether it's
+    // already happened — "who's got which calls" is the point, not just
+    // what's left. Credited to the lead's Staff Name.
     prisma.crmLeadActivity.findMany({
-      where: { activityType: "CALL", dueDate: { gte: today.start, lt: today.end }, ...leadStaffFilter },
+      where: { activityType: "CALL", dueDate: { gte: to.start, lt: to.end }, ...leadStaffFilter },
       orderBy: { dueDate: "asc" },
       include: { lead: leadSelect },
     }),
     // Snapshot, not date-scoped — Zoho tracks no history for Staff Name, so
-    // "leads assigned as of yesterday" isn't computable; this is simply the
+    // "leads assigned as of a past day" isn't computable; this is simply the
     // current count per staff, shown alongside the day-specific sections.
     prisma.crmLead.groupBy({
       by: ["staffName"],
@@ -794,14 +802,14 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
   ]);
 
   const allLeadIds = Array.from(
-    new Set([...completedYesterdayRaw, ...dueTodayRaw, ...callsYesterdayRaw, ...callsTodayRaw].map((a) => a.leadId)),
+    new Set([...completedFromRaw, ...dueToRaw, ...callsFromRaw, ...callsToRaw].map((a) => a.leadId)),
   );
   const notesByLead = await latestNotesForLeads(allLeadIds);
 
-  const completedYesterday = toDailyItems(completedYesterdayRaw, notesByLead);
-  const dueToday = toDailyItems(dueTodayRaw, notesByLead);
-  const callsYesterday = toDailyItems(callsYesterdayRaw, notesByLead);
-  const callsToday = toDailyItems(callsTodayRaw, notesByLead);
+  const completedYesterday = toDailyItems(completedFromRaw, notesByLead);
+  const dueToday = toDailyItems(dueToRaw, notesByLead);
+  const callsYesterday = toDailyItems(callsFromRaw, notesByLead);
+  const callsToday = toDailyItems(callsToRaw, notesByLead);
   const missedCallsYesterday = callsYesterday.filter((c) => c.status !== "Completed").length;
 
   const leadsAssigned: LeadsAssignedRow[] = leadsAssignedRaw
@@ -810,7 +818,8 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     .sort((a, b) => b.count - a.count);
 
   return {
-    date: today.start.toISOString(),
+    fromDate: from.start.toISOString(),
+    toDate: to.start.toISOString(),
     leadsAssigned,
     completedYesterday: { total: completedYesterday.length, byStaff: byStaffCounts(completedYesterday), items: completedYesterday },
     dueToday: { total: dueToday.length, byStaff: byStaffCounts(dueToday), items: dueToday },

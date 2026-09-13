@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api } from "../../api/client";
 import { CATEGORICAL } from "../../lib/chartColors";
+import Pagination from "../../components/Pagination";
 import { useLeadDateFilter, useLeadReportLink } from "./leadDateFilter";
 
 interface DailyItem {
@@ -34,7 +35,8 @@ interface LeadsAssignedRow {
 }
 
 interface DailyReport {
-  date: string;
+  fromDate: string;
+  toDate: string;
   leadsAssigned: LeadsAssignedRow[];
   completedYesterday: DailySection;
   dueToday: DailySection;
@@ -44,54 +46,84 @@ interface DailyReport {
 
 const PIE_COLORS = [CATEGORICAL.blue, CATEGORICAL.aqua, CATEGORICAL.orange, CATEGORICAL.yellow, CATEGORICAL.magenta, CATEGORICAL.green, CATEGORICAL.violet, CATEGORICAL.red];
 
-// Nepal-local (UTC+5:45) "today" as a plain YYYY-MM-DD — the date picker's
-// default, matching the backend's own anchor-date semantics.
-function nepalTodayStr(): string {
-  return new Date(Date.now() + (5 * 60 + 45) * 60 * 1000).toISOString().slice(0, 10);
+// Nepal-local (UTC+5:45) plain YYYY-MM-DD — the From/To defaults, matching
+// the backend's own day-boundary semantics.
+function nepalDateStr(daysAgo: number): string {
+  const d = new Date(Date.now() + (5 * 60 + 45) * 60 * 1000);
+  d.setUTCDate(d.getUTCDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
 }
 
-// Client-confirmed scope: CRM Leads/Calls only, meant to be pulled up as one
-// continuous sheet during the morning meeting — so unlike the Dashboard
-// widgets, tables here deliberately don't cap height/scroll internally.
-// The date picker re-anchors "yesterday"/"today" to any day (reviewing a
-// past morning meeting) — it's always exactly that day plus the one before,
-// never an open-ended range.
+function formatDay(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+function formatShort(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// Client-confirmed scope: CRM Leads/Calls only. The four tables sit in a
+// 2-up grid, each a fixed-height card with its own internal scroll +
+// pagination (same convention as the Dashboard widgets) — the point is
+// everything fits on one screen at a glance for the morning meeting, paging
+// through a section's rows rather than scrolling far down the whole page.
+// From/To are independently-chosen days (a genuine range, not forced to be
+// adjacent): "completed"/"calls that happened" reads from `from`, "due"/
+// "calls scheduled" reads from `to` — same roles yesterday/today played
+// before, just user-selectable, so a past morning meeting can be reviewed.
 export default function DailyReportSection() {
   const [report, setReport] = useState<DailyReport | null>(null);
-  const [anchorDate, setAnchorDate] = useState(nepalTodayStr());
+  const [fromDate, setFromDate] = useState(nepalDateStr(1));
+  const [toDate, setToDate] = useState(nepalDateStr(0));
   const leadLink = useLeadReportLink();
   const { staffName } = useLeadDateFilter();
 
   useEffect(() => {
-    api.get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, date: anchorDate } }).then((res) => setReport(res.data));
-  }, [staffName, anchorDate]);
+    api.get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate } }).then((res) => setReport(res.data));
+  }, [staffName, fromDate, toDate]);
 
   if (!report) return <p className="text-sm text-slate-400 py-12 text-center">Loading...</p>;
 
-  const dateLabel = new Date(report.date).toLocaleDateString(undefined, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-  const isToday = anchorDate === nepalTodayStr();
+  const isDefaultRange = fromDate === nepalDateStr(1) && toDate === nepalDateStr(0);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Daily Report</h2>
-          <p className="text-sm text-slate-500">{dateLabel} (Nepal time) — for the morning meeting</p>
+          <p className="text-sm text-slate-500">for the morning meeting (Nepal time)</p>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-500">Show yesterday/today relative to</label>
-          <input type="date" value={anchorDate} onChange={(e) => setAnchorDate(e.target.value)} className="input w-auto py-1 text-sm" />
-          {!isToday && (
-            <button onClick={() => setAnchorDate(nepalTodayStr())} className="text-xs text-slate-400 underline hover:text-slate-600">
-              Back to today
+          <label className="text-xs text-slate-500">From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="input w-auto py-1 text-sm" />
+          <label className="text-xs text-slate-500">To</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="input w-auto py-1 text-sm" />
+          {!isDefaultRange && (
+            <button
+              onClick={() => {
+                setFromDate(nepalDateStr(1));
+                setToDate(nepalDateStr(0));
+              }}
+              className="text-xs text-slate-400 underline hover:text-slate-600"
+            >
+              Back to yesterday/today
             </button>
           )}
         </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <OverviewStat
+          label="Leads assigned"
+          value={report.leadsAssigned.reduce((s, r) => s + r.count, 0)}
+        />
+        <OverviewStat
+          label="Tasks (completed + due)"
+          value={report.completedYesterday.total + report.dueToday.total}
+        />
+        <OverviewStat
+          label="Calls (both days)"
+          value={report.callsYesterday.total + report.callsToday.total}
+        />
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -111,28 +143,49 @@ export default function DailyReportSection() {
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <PieCard title={`Completed yesterday (${report.completedYesterday.total})`} data={report.completedYesterday.byStaff} />
-        <PieCard title={`Calls yesterday (${report.callsYesterday.total})`} data={report.callsYesterday.byStaff} />
-        <PieCard title={`Due today (${report.dueToday.total})`} data={report.dueToday.byStaff} />
-        <PieCard title={`Calls today (${report.callsToday.total})`} data={report.callsToday.byStaff} />
+        <PieCard title={`Completed ${formatShort(report.fromDate)} (${report.completedYesterday.total})`} data={report.completedYesterday.byStaff} />
+        <PieCard title={`Calls ${formatShort(report.fromDate)} (${report.callsYesterday.total})`} data={report.callsYesterday.byStaff} />
+        <PieCard title={`Due ${formatShort(report.toDate)} (${report.dueToday.total})`} data={report.dueToday.byStaff} />
+        <PieCard title={`Calls ${formatShort(report.toDate)} (${report.callsToday.total})`} data={report.callsToday.byStaff} />
       </div>
 
-      <ReportTable
-        title="Tasks completed yesterday"
-        items={report.completedYesterday.items}
-        leadLink={leadLink}
-        emptyLabel="No tasks were marked completed yesterday."
-      />
-      <ReportTable
-        title="Calls that were supposed to happen yesterday"
-        subtitle={report.callsYesterday.missed > 0 ? `${report.callsYesterday.missed} still show as not completed` : undefined}
-        items={report.callsYesterday.items}
-        leadLink={leadLink}
-        emptyLabel="No calls were scheduled for yesterday."
-        flagMissed
-      />
-      <ReportTable title="Tasks due today" items={report.dueToday.items} leadLink={leadLink} emptyLabel="No open tasks are due today." />
-      <ReportTable title="Calls today — who's assigned" items={report.callsToday.items} leadLink={leadLink} emptyLabel="No calls scheduled for today." />
+      <div className="grid lg:grid-cols-2 gap-4">
+        <ReportTable
+          title={`Tasks completed (${formatDay(report.fromDate)})`}
+          items={report.completedYesterday.items}
+          leadLink={leadLink}
+          emptyLabel="No tasks were marked completed."
+        />
+        <ReportTable
+          title={`Calls that were supposed to happen (${formatDay(report.fromDate)})`}
+          subtitle={report.callsYesterday.missed > 0 ? `${report.callsYesterday.missed} still show as not completed` : undefined}
+          items={report.callsYesterday.items}
+          leadLink={leadLink}
+          emptyLabel="No calls were scheduled."
+          flagMissed
+        />
+        <ReportTable
+          title={`Tasks due (${formatDay(report.toDate)})`}
+          items={report.dueToday.items}
+          leadLink={leadLink}
+          emptyLabel="No open tasks are due."
+        />
+        <ReportTable
+          title={`Calls — who's assigned (${formatDay(report.toDate)})`}
+          items={report.callsToday.items}
+          leadLink={leadLink}
+          emptyLabel="No calls scheduled."
+        />
+      </div>
+    </div>
+  );
+}
+
+function OverviewStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-2xl font-semibold text-slate-900 mt-1">{value}</p>
     </div>
   );
 }
@@ -170,6 +223,12 @@ function PieCard({ title, data }: { title: string; data: { staff: string; count:
   );
 }
 
+const ROWS_PER_PAGE = 8;
+
+// Fixed-height card with its own internal scroll + pagination — one screen
+// should show every section's header/first rows at once (2-up grid above),
+// with "scroll through pages" via Prev/Next instead of one long page you
+// have to scroll far down to get past.
 function ReportTable({
   title,
   subtitle,
@@ -185,17 +244,21 @@ function ReportTable({
   emptyLabel: string;
   flagMissed?: boolean;
 }) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / ROWS_PER_PAGE));
+  const pageItems = items.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <div className="px-4 pt-4 pb-2">
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden h-[420px] flex flex-col">
+      <div className="px-4 pt-4 pb-2 shrink-0">
         <h3 className="font-medium text-slate-900">
           {title} <span className="text-sm font-normal text-slate-400">({items.length})</span>
         </h3>
         {subtitle && <p className="text-xs text-amber-600">{subtitle}</p>}
       </div>
-      <div className="overflow-x-auto">
+      <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 bg-white">
             <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
               <th className="px-4 pb-2">Lead</th>
               <th className="px-2 pb-2">Staff</th>
@@ -207,7 +270,7 @@ function ReportTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {items.map((it) => {
+            {pageItems.map((it) => {
               const missed = flagMissed && it.status !== "Completed";
               return (
                 <tr key={it.activityId} className={missed ? "bg-amber-50" : undefined}>
@@ -240,6 +303,9 @@ function ReportTable({
             )}
           </tbody>
         </table>
+      </div>
+      <div className="shrink-0">
+        <Pagination page={page} totalPages={totalPages} total={items.length} pageSize={ROWS_PER_PAGE} onPageChange={setPage} />
       </div>
     </div>
   );

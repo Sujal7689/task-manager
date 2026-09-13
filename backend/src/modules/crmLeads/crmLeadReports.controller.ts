@@ -60,10 +60,14 @@ export async function dailyReportHandler(req: Request, res: Response) {
   // cache serve a stale day's report.
   res.set("Cache-Control", "no-store");
   const staffName = typeof req.query.staffName === "string" && req.query.staffName ? req.query.staffName : undefined;
-  // `?date=` re-anchors "yesterday"/"today" to any day (e.g. reviewing a
-  // past morning meeting) — omitted, it's the actual current day.
-  const anchorDate = parseDate(req.query.date, "date");
-  res.json(await service.getDailyReport(staffName, await getScope(req), anchorDate));
+  // `?from=&to=` are independently-chosen calendar days (a genuine From/To
+  // pair, not forced to be adjacent) — the "completed"/"calls that
+  // happened" side of the report reads from `from`, the "due"/"calls
+  // scheduled" side reads from `to`. Both default to actual yesterday/today
+  // when omitted.
+  const fromDate = parseDate(req.query.from, "from");
+  const toDate = parseDate(req.query.to, "to");
+  res.json(await service.getDailyReport(staffName, await getScope(req), fromDate, toDate));
 }
 
 export async function closureReportHandler(req: Request, res: Response) {

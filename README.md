@@ -504,17 +504,23 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   view from another in-house tool the client already uses.
   (`CrmReports/GroupedByStaffList.tsx`, backed by `GET /crm-lead-reports/
   dashboard/grouped-by-staff`.)
-- **Daily Report tab** — a fourth CRM Reports tab, meant to be pulled up as
-  one continuous sheet for the morning meeting: a "leads assigned per staff"
-  snapshot, 4 pie charts, and 4 tables (Tasks completed yesterday, Calls
-  that were supposed to happen yesterday, Tasks due today, Calls today —
-  who's assigned), scoped to CRM Leads/Calls only per client confirmation
-  (not the internal Task app). "Today"/"yesterday" are anchored to Nepal
-  local time (`Asia/Kathmandu`, UTC+5:45) and, via a `?date=` anchor date
-  picker on the page, can be re-pointed at any day (still always exactly
-  that day plus the one before — never an open-ended range, by design).
-  Deliberately ignores the leads-since cutoff filter used everywhere else —
-  a day's work matters regardless of how old the underlying lead is. The
+- **Daily Report tab** — a fourth CRM Reports tab, designed to fit on one
+  screen for the morning meeting rather than one long scroll: an overview
+  row (total leads assigned / tasks / calls), a "leads assigned per staff"
+  snapshot, 4 pie charts, and 4 tables (Tasks completed, Calls that were
+  supposed to happen, Tasks due, Calls — who's assigned) laid out 2-up,
+  each a fixed-height card with its own internal scroll + pagination (same
+  convention as the Dashboard widgets) rather than growing the page — you
+  page through a section's rows instead of scrolling past it. Scoped to CRM
+  Leads/Calls only per client confirmation (not the internal Task app), and
+  deliberately ignores the leads-since cutoff filter used everywhere else —
+  a day's work matters regardless of how old the underlying lead is.
+  "Yesterday"/"today" are anchored to Nepal local time (`Asia/Kathmandu`,
+  UTC+5:45) by default but are independently-choosable via a **From/To**
+  filter on the page (`?from=&to=`, not forced to be adjacent days) — the
+  "completed"/"calls that happened" tables read from `from`, the "due"/
+  "calls scheduled" tables read from `to`, so a past morning meeting can be
+  reviewed with any two dates, not just literal yesterday/today. The
   response is sent with `Cache-Control: no-store` since "today" shifts by
   the hour. Required adding `dueDate`/`status` columns to
   `crm_lead_activity` (not captured before this), populated for TASK
@@ -677,7 +683,7 @@ All endpoints under `/api` except `/api/auth/login` require
 - `GET /api/crm-lead-reports/dashboard/grouped-by-staff` — every lead grouped by owner, for the Dashboard's "By Staff" view
 - `GET /api/crm-lead-reports/leads`, `GET /api/crm-lead-reports/leads/:id` — Lead-wise tab (selector + merged activity timeline, `?type=` filters to one activity type and hides stage/owner-change entries)
 - `GET /api/crm-lead-reports/staff` — Staff-wise tab's default overview (leads owned, conversion rate, activities logged, last activity per `staffName` — no one needs to be selected first), `GET /api/crm-lead-reports/staff/:staffName` for the drill-down detail (path segment is the Staff Name field's value, URL-encoded — not Owner)
-- `GET /api/crm-lead-reports/daily` — Daily Report tab (tasks completed yesterday, tasks due today, calls today by staff — Nepal-time day boundaries, ignores the date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — and `?date=` to re-anchor yesterday/today to any day)
+- `GET /api/crm-lead-reports/daily` — Daily Report tab (tasks completed, tasks due, calls, by staff — Nepal-time day boundaries, ignores the leads-since date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — and `?from=&to=`, two independently-chosen calendar days defaulting to actual yesterday/today, `from` scoping the completed/happened-calls tables and `to` scoping the due/scheduled-calls tables)
 - `GET /api/crm-lead-reports/closure?period=day|week|month` — Closure Report tab (activities closed + deals converted per staff, Nepal-time period bounds; accepts `?staffName=`)
 
 **Phase 6 — admin & audit**
