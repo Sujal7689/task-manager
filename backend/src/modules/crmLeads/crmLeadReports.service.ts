@@ -685,15 +685,27 @@ interface DailyReportItem {
   latestNote: string | null;
 }
 
-function byStaffCounts(items: DailyReportItem[]): { staff: string; count: number }[] {
-  const counts = new Map<string, number>();
-  for (const item of items) {
+// Two related counts per staff in one row — e.g. completed-vs-due, or
+// completed-vs-missed — so the frontend can render a single grouped bar
+// chart (a real side-by-side comparison) instead of two separate pies that
+// can't be compared against each other at a glance.
+function combineByStaff(itemsA: DailyReportItem[], itemsB: DailyReportItem[]): { staff: string; a: number; b: number }[] {
+  const counts = new Map<string, { a: number; b: number }>();
+  for (const item of itemsA) {
     const key = item.staff ?? "Unassigned";
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const entry = counts.get(key) ?? { a: 0, b: 0 };
+    entry.a++;
+    counts.set(key, entry);
+  }
+  for (const item of itemsB) {
+    const key = item.staff ?? "Unassigned";
+    const entry = counts.get(key) ?? { a: 0, b: 0 };
+    entry.b++;
+    counts.set(key, entry);
   }
   return Array.from(counts.entries())
-    .map(([staff, count]) => ({ staff, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([staff, { a, b }]) => ({ staff, a, b }))
+    .sort((x, y) => y.a + y.b - (x.a + x.b));
 }
 
 type DailyActivityRow = {
@@ -743,6 +755,18 @@ async function latestNotesForLeads(leadIds: string[]): Promise<Map<string, strin
 export interface LeadsAssignedRow {
   staff: string;
   count: number;
+}
+
+export interface TaskStaffComparisonRow {
+  staff: string;
+  completed: number;
+  due: number;
+}
+
+export interface CallStaffComparisonRow {
+  staff: string;
+  completed: number;
+  missed: number;
 }
 
 export async function getDailyReport(staffName?: string, scope?: string[] | null, fromDate?: Date, toDate?: Date) {
@@ -797,32 +821,51 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
   const completed = toDailyItems(completedRaw, notesByLead);
   const due = toDailyItems(dueRaw, notesByLead);
   const calls = toDailyItems(callsRaw, notesByLead);
-  const missedCalls = calls.filter((c) => c.status !== "Completed").length;
+  const callsCompleted = calls.filter((c) => c.status === "Completed");
+  const callsMissed = calls.filter((c) => c.status !== "Completed");
 
   const leadsAssigned: LeadsAssignedRow[] = leadsAssignedRaw
     .filter((r) => r.staffName)
     .map((r) => ({ staff: r.staffName as string, count: r._count._all }))
     .sort((a, b) => b.count - a.count);
 
+  const taskComparison: TaskStaffComparisonRow[] = combineByStaff(completed, due).map((r) => ({
+    staff: r.staff,
+    completed: r.a,
+    due: r.b,
+  }));
+  const callComparison: CallStaffComparisonRow[] = combineByStaff(callsCompleted, callsMissed).map((r) => ({
+    staff: r.staff,
+    completed: r.a,
+    missed: r.b,
+  }));
+
   return {
     fromDate: from.start.toISOString(),
     toDate: to.start.toISOString(),
     leadsAssigned,
-    completed: { total: completed.length, byStaff: byStaffCounts(completed), items: completed },
-    due: { total: due.length, byStaff: byStaffCounts(due), items: due },
-    calls: { total: calls.length, missed: missedCalls, byStaff: byStaffCounts(calls), items: calls },
+    taskComparison,
+    callComparison,
+    completed: { total: completed.length, items: completed },
+    due: { total: due.length, items: due },
+    calls: { total: calls.length, missed: callsMissed.length, items: calls },
   };
 }
 
 // -------------------- Closure Report (day/week/month per-staff board) --------------------
 // "Closure report" per the client: how many tasks/activities each person
-// closed, and how many deals they converted, over a day/week/month. Every
-// item type here — completed TASKs, completed CALLs, and converted deals —
-// is credited to the parent Lead's `staffName`, not `actorName`: confirmed
-// against this org's real Zoho data that both Tasks' and Calls' Owner field
-// is a single generic account (Harsh Singhania / Sanjay Singhania
-// respectively) regardless of who actually works the lead, so `actorName`
-// is useless for attribution here — same finding as the Daily Report above.
+// closed, and how many leads they turned into deals, over a day/week/month.
+// "Deals converted" specifically means a Lead whose Zoho conversion created
+// a Deal record (`convertedDealId` set) — not just the generic `converted`
+// flag, which Zoho also sets for a Lead converted to an Account/Contact
+// with no Deal at all (see the query below for the real counts this
+// distinction makes). Every item type here — completed TASKs, completed
+// CALLs, and converted deals — is credited to the parent Lead's
+// `staffName`, not `actorName`: confirmed against this org's real Zoho data
+// that both Tasks' and Calls' Owner field is a single generic account
+// (Harsh Singhania / Sanjay Singhania respectively) regardless of who
+// actually works the lead, so `actorName` is useless for attribution here —
+// same finding as the Daily Report above.
 
 export interface ClosureReportRow {
   staff: string;
@@ -846,10 +889,17 @@ export async function getClosureReport(period: ClosurePeriod, staffName?: string
       where: { status: "Completed", activityType: "CALL", occurredAt: { gte: start, lt: end }, lead: leadStaffWhere },
       select: { lead: { select: { staffName: true } } },
     }),
+    // "Deals converted" means literally that — a Lead whose Zoho conversion
+    // created a Deal record — not just any conversion. Zoho's conversion
+    // wizard lets a Lead convert to an Account/Contact with NO Deal (the
+    // `converted` flag alone doesn't distinguish this): confirmed against
+    // real data that 91 leads in this org are `converted: true` but only 23
+    // actually have a `convertedDealId`. Counting the generic flag would
+    // overstate deals closed by ~4x.
     prisma.crmLead.groupBy({
       by: ["staffName"],
       where: {
-        converted: true,
+        convertedDealId: { not: null },
         convertedAt: { gte: start, lt: end },
         staffName: nameCond !== undefined ? nameCond : { not: null },
       },

@@ -507,13 +507,26 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
 - **Daily Report tab** — a fourth CRM Reports tab, designed to fit on one
   screen for the morning meeting rather than one long scroll: an overview
   row (total leads assigned / tasks / calls), a "leads assigned per staff"
-  snapshot, 3 pie charts, and 3 tables (Tasks completed, Tasks due, Calls),
-  each a fixed-height card with its own internal scroll + pagination (same
-  convention as the Dashboard widgets) rather than growing the page — you
-  page through a section's rows instead of scrolling past it. Scoped to CRM
+  snapshot, 2 comparison bar charts, and 3 tables (Tasks completed, Tasks
+  due, Calls), each a fixed-height card with its own internal scroll +
+  pagination (same convention as the Dashboard widgets) rather than growing
+  the page — you page through a section's rows instead of scrolling past
+  it. The Calls table spans both grid columns (`lg:col-span-2`) since it's
+  the odd one out in an otherwise 2-column layout. Scoped to CRM
   Leads/Calls only per client confirmation (not the internal Task app), and
   deliberately ignores the leads-since cutoff filter used everywhere else —
   work matters regardless of how old the underlying lead is.
+  - **Comparison bar charts, not per-metric pies (2026-09-13)**: "Tasks
+    completed (23)" and "Tasks due (3)" used to be two separate pies, each
+    only showing its own 100%-of-itself split by staff — useless for
+    comparing the two numbers against each other. Replaced with one grouped
+    bar chart per domain (`ComparisonBarCard` in `DailyReportSection.tsx`,
+    generic over the row shape) — Tasks: completed vs. due per staff, and
+    Calls: completed vs. missed per staff — backed by a new `combineByStaff`
+    helper in `crmLeadReports.service.ts` that outer-joins two activity-item
+    arrays into per-staff `{a, b}` rows. Replaces the old per-section
+    `byStaff` breakdown in the API response with `taskComparison`/
+    `callComparison`.
   - **From/To is a genuine inclusive range (2026-09-13), not two single
     days**: `?from=&to=` (Nepal-local, `Asia/Kathmandu` UTC+5:45; defaults
     to actual yesterday/today) — every section covers the *entire* span
@@ -569,11 +582,18 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   over a per-staff scoreboard of activities closed and deals converted.
   "Closed" means a CALL or TASK activity with `status: "Completed"` in the
   selected Nepal-time period; "converted" means a lead with
-  `converted: true` and `convertedAt` in that period. All three are
+  `convertedDealId` set and `convertedAt` in that period. Both are
   credited to the parent lead's `staffName`, not `actorName` — same
   Harsh-Singhania/Sanjay-Singhania generic-Owner finding as the Daily
   Report above (fixed 2026-09-13; completed Calls/Tasks were previously
   both credited to `actorName`).
+  - **"Deals converted" means a Deal, not just any conversion
+    (2026-09-13)**: Zoho's Lead-conversion wizard can convert a Lead to just
+    an Account/Contact with no Deal created — the generic `converted`
+    boolean doesn't distinguish this. Confirmed against real data (91 leads
+    `converted: true`, only 23 with a `convertedDealId`) that counting the
+    flag overstated deals closed by ~4x. Fixed to filter on
+    `convertedDealId: { not: null }`.
   `CrmReports/ClosureReportSection.tsx`, backed by `getClosureReport` /
   `GET /crm-lead-reports/closure`.
 - **Owner → Staff Name migration (2026-09-10)**: the client added a custom

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../../api/client";
-import { CATEGORICAL } from "../../lib/chartColors";
+import { CATEGORICAL, CHART_CHROME } from "../../lib/chartColors";
 import Pagination from "../../components/Pagination";
 import { useLeadDateFilter, useLeadReportLink } from "./leadDateFilter";
 
@@ -21,7 +21,6 @@ interface DailyItem {
 
 interface DailySection {
   total: number;
-  byStaff: { staff: string; count: number }[];
   items: DailyItem[];
 }
 
@@ -34,16 +33,28 @@ interface LeadsAssignedRow {
   count: number;
 }
 
+interface TaskComparisonRow {
+  staff: string;
+  completed: number;
+  due: number;
+}
+
+interface CallComparisonRow {
+  staff: string;
+  completed: number;
+  missed: number;
+}
+
 interface DailyReport {
   fromDate: string;
   toDate: string;
   leadsAssigned: LeadsAssignedRow[];
+  taskComparison: TaskComparisonRow[];
+  callComparison: CallComparisonRow[];
   completed: DailySection;
   due: DailySection;
   calls: CallsSection;
 }
-
-const PIE_COLORS = [CATEGORICAL.blue, CATEGORICAL.aqua, CATEGORICAL.orange, CATEGORICAL.yellow, CATEGORICAL.magenta, CATEGORICAL.green, CATEGORICAL.violet, CATEGORICAL.red];
 
 // Nepal-local (UTC+5:45) plain YYYY-MM-DD — the From/To defaults, matching
 // the backend's own day-boundary semantics.
@@ -138,10 +149,23 @@ export default function DailyReportSection() {
         )}
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-4">
-        <PieCard title={`Tasks completed (${report.completed.total})`} data={report.completed.byStaff} />
-        <PieCard title={`Tasks due (${report.due.total})`} data={report.due.byStaff} />
-        <PieCard title={`Calls (${report.calls.total})`} data={report.calls.byStaff} />
+      <div className="grid sm:grid-cols-2 gap-4">
+        <ComparisonBarCard
+          title={`Tasks — completed vs. due (${report.completed.total + report.due.total})`}
+          data={report.taskComparison}
+          aKey="completed"
+          bKey="due"
+          aColor={CATEGORICAL.aqua}
+          bColor={CATEGORICAL.orange}
+        />
+        <ComparisonBarCard
+          title={`Calls — completed vs. missed (${report.calls.total})`}
+          data={report.callComparison}
+          aKey="completed"
+          bKey="missed"
+          aColor={CATEGORICAL.aqua}
+          bColor={CATEGORICAL.red}
+        />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
@@ -175,7 +199,24 @@ function OverviewStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function PieCard({ title, data }: { title: string; data: { staff: string; count: number }[] }) {
+// Grouped bar chart, one pair of bars per staff — a genuine side-by-side
+// comparison (e.g. completed vs. due), which two separate pies never let you
+// read at a glance since each pie only ever showed one metric's own split.
+function ComparisonBarCard<T extends { staff: string }>({
+  title,
+  data,
+  aKey,
+  bKey,
+  aColor,
+  bColor,
+}: {
+  title: string;
+  data: T[];
+  aKey: keyof T & string;
+  bKey: keyof T & string;
+  aColor: string;
+  bColor: string;
+}) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
       <h3 className="text-sm font-medium text-slate-700 mb-2">{title}</h3>
@@ -183,25 +224,15 @@ function PieCard({ title, data }: { title: string; data: { staff: string; count:
         <p className="text-xs text-slate-400 text-center py-16">No data.</p>
       ) : (
         <ResponsiveContainer width="100%" height={220}>
-          <PieChart>
-            <Pie
-              data={data}
-              dataKey="count"
-              nameKey="staff"
-              innerRadius={40}
-              outerRadius={75}
-              paddingAngle={2}
-              label={(p: { staff?: string; percent?: number }) => `${p.staff ?? ""} ${((p.percent ?? 0) * 100).toFixed(0)}%`}
-              labelLine={false}
-              style={{ fontSize: 10 }}
-            >
-              {data.map((d, i) => (
-                <Cell key={d.staff} fill={PIE_COLORS[i % PIE_COLORS.length]} stroke="#fff" strokeWidth={2} />
-              ))}
-            </Pie>
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_CHROME.gridline} vertical={false} />
+            <XAxis dataKey="staff" tick={{ fontSize: 11, fill: CHART_CHROME.textSecondary }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: CHART_CHROME.textSecondary }} />
             <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-          </PieChart>
+            <Bar dataKey={aKey as string} fill={aColor} radius={[4, 4, 0, 0]} />
+            <Bar dataKey={bKey as string} fill={bColor} radius={[4, 4, 0, 0]} />
+          </BarChart>
         </ResponsiveContainer>
       )}
     </div>
