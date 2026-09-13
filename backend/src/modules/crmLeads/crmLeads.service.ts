@@ -211,13 +211,20 @@ const ACTIVITY_SPECS: ActivitySpec[] = [
     type: "EVENT",
     relatedLists: ["Events", "Events_History"],
     fields: "id,Event_Title,Venue,Start_DateTime,End_DateTime,Description,Owner,Created_Time,Modified_Time",
-    normalize: (r) => {
+    normalize: (r, relatedList) => {
       const actor = lookupName(r.Owner);
+      const startStr = r.Start_DateTime as string | undefined;
       return {
         occurredAt: firstDate(r.Start_DateTime, r.Created_Time),
         actorId: actor.id,
         actorName: actor.name,
         summary: r.Event_Title as string,
+        // Same scheduled-vs-status split as CALL above (Zoho's Events
+        // related list has no clean status field either) — needed so a
+        // scheduled meeting can compete with Tasks/Calls for "next follow
+        // up" in the Daily Report's Leads table.
+        dueDate: startStr ? new Date(startStr) : undefined,
+        status: relatedList === "Events_History" ? "Completed" : "Scheduled",
       };
     },
   },

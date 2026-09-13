@@ -542,9 +542,22 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
       it's only the `occurredAt` of the most recent *Completed* call — a
       merely-scheduled-but-not-yet-made call has a status but no "done at"
       time, so this column stays blank until one actually goes through.
-      Next follow up is the soonest still-open TASK's due date for the
-      lead, so the next thing to do doesn't require opening the separate
-      Tasks due table.
+      Next follow up (reworked 2026-09-13): not just Tasks — the real
+      follow-up chain in this org moves between activity types (an initial
+      Task gets worked, then someone schedules a Call, or a meeting, which
+      supersedes it). Now takes the single most recently-scheduled item
+      across TASK/CALL/EVENT (`Due_Date`/`Call_Start_Time`/`Start_DateTime`
+      respectively) for the lead, whichever type it is, and shows its type,
+      date/time, and its own completion status together (e.g. "Call ·
+      Completed", "Task · Not Started") — not filtered to
+      not-yet-completed-only, so the column keeps showing the current
+      follow-up (and that it's done) instead of going blank the moment it's
+      completed, until a newer one is scheduled. Required teaching EVENT's
+      sync normalizer (`crmLeads.service.ts`) to populate `dueDate`/`status`
+      for the first time (`Start_DateTime`; status derived from
+      Events vs. Events_History, same convention as CALL) — previously
+      unused for that type. **A full re-sync is required** for existing
+      Event rows to carry a due date/status or be considered at all.
   - **Calls table status filter (2026-09-13)**: an All/Completed
     only/Not completed only dropdown local to the Calls card (client-side,
     doesn't refetch) — the card mixes both statuses by default with missed

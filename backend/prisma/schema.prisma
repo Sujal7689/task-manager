@@ -771,11 +771,12 @@ model CrmLeadActivity {
   actorId        String?          @map("actor_id")
   actorName      String?          @map("actor_name")
   summary        String?
-  // Only meaningfully populated for TASK (Due_Date) and CALL/TASK (a status
-  // string — for Calls, derived from which related list it came from since
-  // Zoho doesn't expose a clean status field there; see crmLeads.service.ts)
-  // — added specifically for the Daily Report (Section: everyday morning-
-  // meeting sheet). Nullable/unused for Note/Event/Email.
+  // Populated for TASK (Due_Date/Status), CALL (Call_Start_Time; status
+  // derived from which related list it's in — Zoho exposes no clean status
+  // field there), and EVENT (Start_DateTime; same derived-from-related-list
+  // status as CALL) — added specifically for the Daily Report (Section:
+  // everyday morning-meeting sheet, incl. "next follow up" across all three
+  // types). Nullable/unused for Note/Email.
   dueDate        DateTime?        @map("due_date")
   status         String?
   rawData        Json             @map("raw_data")

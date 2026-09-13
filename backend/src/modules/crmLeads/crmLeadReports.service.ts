@@ -776,19 +776,34 @@ async function latestCallInfoForLeads(leadIds: string[]): Promise<Map<string, { 
   return byLead;
 }
 
-// The nearest still-open TASK due date for a lead — "what's the next thing
-// to do here," shown as its own column so it doesn't have to be read off
-// the separate Tasks due table.
-async function nextFollowUpForLeads(leadIds: string[]): Promise<Map<string, Date>> {
+export interface NextFollowUp {
+  dueDate: Date;
+  status: string | null;
+  type: "TASK" | "CALL" | "EVENT";
+}
+
+// "What's the next thing scheduled for this lead" — not just the next open
+// Task, since the actual follow-up chain in this org moves between types
+// (an initial Task gets worked, then someone schedules a Call or a meeting,
+// which supersedes it). Takes the single most recently-scheduled item
+// across TASK/CALL/EVENT (by dueDate — Due_Date / Call_Start_Time /
+// Start_DateTime respectively), whichever type it is, and surfaces its own
+// completion status alongside the date rather than filtering to
+// not-yet-completed only — so the column keeps showing the current
+// follow-up (and that it's done) until a newer one is scheduled, instead of
+// going blank the moment it's completed.
+async function nextFollowUpForLeads(leadIds: string[]): Promise<Map<string, NextFollowUp>> {
   if (leadIds.length === 0) return new Map();
-  const tasks = await prisma.crmLeadActivity.findMany({
-    where: { activityType: "TASK", status: { not: "Completed" }, leadId: { in: leadIds }, dueDate: { not: null } },
-    select: { leadId: true, dueDate: true },
-    orderBy: { dueDate: "asc" },
+  const items = await prisma.crmLeadActivity.findMany({
+    where: { activityType: { in: ["TASK", "CALL", "EVENT"] }, leadId: { in: leadIds }, dueDate: { not: null } },
+    select: { leadId: true, dueDate: true, status: true, activityType: true },
+    orderBy: { dueDate: "desc" },
   });
-  const byLead = new Map<string, Date>();
-  for (const t of tasks) {
-    if (!byLead.has(t.leadId) && t.dueDate) byLead.set(t.leadId, t.dueDate);
+  const byLead = new Map<string, NextFollowUp>();
+  for (const it of items) {
+    if (!byLead.has(it.leadId) && it.dueDate) {
+      byLead.set(it.leadId, { dueDate: it.dueDate, status: it.status, type: it.activityType as "TASK" | "CALL" | "EVENT" });
+    }
   }
   return byLead;
 }
@@ -809,7 +824,9 @@ export interface DailyLeadItem {
   latestNote: string | null;
   callStatus: string | null;
   callAt: Date | null;
-  nextFollowUp: Date | null;
+  nextFollowUpAt: Date | null;
+  nextFollowUpType: string | null;
+  nextFollowUpStatus: string | null;
 }
 
 export interface TaskStaffComparisonRow {
@@ -907,7 +924,9 @@ export async function getDailyReport(staffName?: string, scope?: string[] | null
     latestNote: notesByLead.get(l.id) ?? null,
     callStatus: callInfoByLead.get(l.id)?.status ?? null,
     callAt: callInfoByLead.get(l.id)?.completedAt ?? null,
-    nextFollowUp: nextFollowUpByLead.get(l.id) ?? null,
+    nextFollowUpAt: nextFollowUpByLead.get(l.id)?.dueDate ?? null,
+    nextFollowUpType: nextFollowUpByLead.get(l.id)?.type ?? null,
+    nextFollowUpStatus: nextFollowUpByLead.get(l.id)?.status ?? null,
     createdAt: l.zohoCreatedTime as Date,
   }));
 

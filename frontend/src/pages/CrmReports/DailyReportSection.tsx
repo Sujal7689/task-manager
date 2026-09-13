@@ -44,7 +44,9 @@ interface LeadItem {
   latestNote: string | null;
   callStatus: string | null;
   callAt: string | null;
-  nextFollowUp: string | null;
+  nextFollowUpAt: string | null;
+  nextFollowUpType: string | null;
+  nextFollowUpStatus: string | null;
 }
 
 interface LeadsSection {
@@ -86,6 +88,16 @@ function nepalDateStr(daysAgo: number): string {
 
 function formatShort(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+// "Next follow up" can be whichever of Task/Call/Event is currently the
+// most recently scheduled one for a lead — this just gives the raw
+// CrmActivityType value a label a non-engineer reads naturally.
+function followUpTypeLabel(type: string | null) {
+  if (type === "CALL") return "Call";
+  if (type === "EVENT") return "Meeting";
+  if (type === "TASK") return "Task";
+  return "—";
 }
 
 // A single day reads as "Friday, September 12, 2026"; a real range reads as
@@ -446,7 +458,16 @@ function LeadsTable({
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.callStatus ?? "Not Started"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.callAt ? new Date(l.callAt).toLocaleString() : "—"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">
-                  {l.nextFollowUp ? new Date(l.nextFollowUp).toLocaleString() : "—"}
+                  {l.nextFollowUpAt ? (
+                    <>
+                      <div className="text-slate-600">{new Date(l.nextFollowUpAt).toLocaleString()}</div>
+                      <div className="text-slate-400">
+                        {followUpTypeLabel(l.nextFollowUpType)} · {l.nextFollowUpStatus ?? "—"}
+                      </div>
+                    </>
+                  ) : (
+                    "—"
+                  )}
                 </td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.phone ?? "—"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{new Date(l.createdAt).toLocaleString()}</td>
