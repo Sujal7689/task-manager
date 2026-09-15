@@ -21,10 +21,16 @@ router.get("/dashboard/stage-wise", asyncHandler(controller.stageWiseHandler));
 
 router.get("/kanban", asyncHandler(controller.kanbanHandler));
 router.get("/daily", asyncHandler(controller.dailyReportHandler));
+router.get("/daily/leads.csv", asyncHandler(controller.dailyReportLeadsCsvHandler));
 router.get("/closure", asyncHandler(controller.closureReportHandler));
+
+router.get("/countries", asyncHandler(controller.countriesHandler));
 
 router.get("/leads", asyncHandler(controller.leadsSelectorHandler));
 router.get("/leads/:id", asyncHandler(controller.leadDetailHandler));
+// Locally-managed field, not synced from Zoho — any role that can already
+// see this lead (same scope check as the GET above) can set it.
+router.patch("/leads/:id/quality", asyncHandler(controller.updateLeadQualityHandler));
 
 router.get("/staff", asyncHandler(controller.staffOverviewHandler));
 // :staffName — the Lead's "Staff Name" custom field, not Owner. See

@@ -34,6 +34,7 @@ interface ZohoLead {
   Phone?: string;
   Lead_Source?: string;
   Lead_Status?: string;
+  Country?: string;
   Created_Time?: string;
   Modified_Time?: string;
   Converted__s?: boolean;
@@ -62,6 +63,7 @@ const ZOHO_LEAD_FIELDS = [
   "Phone",
   "Lead_Source",
   "Lead_Status",
+  "Country",
   "Created_Time",
   "Modified_Time",
   "Converted__s",
@@ -353,6 +355,7 @@ function mapLead(zohoLead: ZohoLead) {
     company: zohoLead.Company ?? null,
     email: zohoLead.Email ?? null,
     phone: zohoLead.Phone ?? null,
+    country: zohoLead.Country ?? null,
     leadSource: zohoLead.Lead_Source ?? null,
     description: zohoLead.Description ?? null,
     tags,

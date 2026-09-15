@@ -35,6 +35,8 @@ interface LeadDetail {
   funnelStage: string | null;
   staffName: string | null;
   ownerName: string | null;
+  country: string | null;
+  leadQuality: string | null;
   zohoCreatedTime: string | null;
   converted: boolean;
   convertedAt: string | null;
@@ -42,6 +44,12 @@ interface LeadDetail {
 }
 
 const ACTIVITY_TYPES = ["NOTE", "CALL", "EVENT", "TASK", "EMAIL"] as const;
+
+const QUALITY_OPTIONS = [
+  { value: "POTENTIAL_DEAL", label: "Potential Deal" },
+  { value: "NURTURING", label: "Nurturing" },
+  { value: "UNQUALIFIED", label: "Lead Unqualified" },
+] as const;
 
 const KIND_STYLE: Record<string, { badge: string; accent: string }> = {
   NOTE: { badge: "bg-blue-50 text-blue-700", accent: "border-blue-300" },
@@ -73,21 +81,21 @@ export default function LeadWiseSection() {
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumnData[]>([]);
   const [detail, setDetail] = useState<LeadDetail | null>(null);
   const [activityType, setActivityType] = useState("");
-  const { createdSince, createdBefore, staffName } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality } = useLeadDateFilter();
 
   useEffect(() => {
     if (view !== "list") return;
     api
-      .get<LeadOption[]>("/crm-lead-reports/leads", { params: { search: search || undefined, createdSince, createdBefore, staffName } })
+      .get<LeadOption[]>("/crm-lead-reports/leads", { params: { search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality } })
       .then((res) => setOptions(res.data));
-  }, [view, search, createdSince, createdBefore, staffName]);
+  }, [view, search, createdSince, createdBefore, staffName, country, leadQuality]);
 
   useEffect(() => {
     if (view !== "kanban") return;
     api
-      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { search: search || undefined, createdSince, createdBefore, staffName } })
+      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality } })
       .then((res) => setKanbanColumns(res.data));
-  }, [view, search, createdSince, createdBefore, staffName]);
+  }, [view, search, createdSince, createdBefore, staffName, country, leadQuality]);
 
   useEffect(() => {
     if (!leadId) {
@@ -96,6 +104,16 @@ export default function LeadWiseSection() {
     }
     api.get<LeadDetail>(`/crm-lead-reports/leads/${leadId}`, { params: { type: activityType || undefined } }).then((res) => setDetail(res.data));
   }, [leadId, activityType]);
+
+  function updateQuality(quality: string) {
+    if (!detail) return;
+    const next = quality || null;
+    setDetail({ ...detail, leadQuality: next }); // optimistic — reflects immediately, no refetch needed for a single field
+    api.patch(`/crm-lead-reports/leads/${detail.id}/quality`, { quality: next }).catch(() => {
+      // Revert on failure so the dropdown doesn't silently lie about what's saved.
+      setDetail((d) => (d ? { ...d, leadQuality: detail.leadQuality } : d));
+    });
+  }
 
   function selectLead(id: string) {
     setSearchParams((prev) => {
@@ -154,8 +172,22 @@ export default function LeadWiseSection() {
                   <div><dt className="text-xs text-slate-400">Staff</dt><dd>{detail.staffName ?? "—"}</dd></div>
                   <div><dt className="text-xs text-slate-400">Owner</dt><dd>{detail.ownerName ?? "—"}</dd></div>
                   <div><dt className="text-xs text-slate-400">Stage</dt><dd>{detail.leadStatus ?? "—"}</dd></div>
+                  <div><dt className="text-xs text-slate-400">Country</dt><dd>{detail.country ?? "—"}</dd></div>
                   <div><dt className="text-xs text-slate-400">Created</dt><dd>{detail.zohoCreatedTime ? new Date(detail.zohoCreatedTime).toLocaleDateString() : "—"}</dd></div>
                   <div><dt className="text-xs text-slate-400">Converted</dt><dd>{detail.converted ? new Date(detail.convertedAt!).toLocaleDateString() : "No"}</dd></div>
+                  <div>
+                    <dt className="text-xs text-slate-400">Quality</dt>
+                    <dd>
+                      <select value={detail.leadQuality ?? ""} onChange={(e) => updateQuality(e.target.value)} className="input w-auto py-1 text-sm">
+                        <option value="">— Not set —</option>
+                        {QUALITY_OPTIONS.map((q) => (
+                          <option key={q.value} value={q.value}>
+                            {q.label}
+                          </option>
+                        ))}
+                      </select>
+                    </dd>
+                  </div>
                 </dl>
               </div>
 

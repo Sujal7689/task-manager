@@ -22,19 +22,21 @@ export default function ActivityFeedWidget() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [type, setType] = useState<string>("");
-  const { createdSince, createdBefore, staffName } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality } = useLeadDateFilter();
   const leadLink = useLeadReportLink();
 
-  useEffect(() => setPage(1), [createdSince, createdBefore, staffName]);
+  useEffect(() => setPage(1), [createdSince, createdBefore, staffName, country, leadQuality]);
 
   useEffect(() => {
     api
-      .get("/crm-lead-reports/dashboard/activity-feed", { params: { page, pageSize: PAGE_SIZE, type: type || undefined, createdSince, createdBefore, staffName } })
+      .get("/crm-lead-reports/dashboard/activity-feed", {
+        params: { page, pageSize: PAGE_SIZE, type: type || undefined, createdSince, createdBefore, staffName, country, leadQuality },
+      })
       .then((res) => {
         setRows(res.data.rows);
         setTotal(res.data.total);
       });
-  }, [page, type, createdSince, createdBefore, staffName]);
+  }, [page, type, createdSince, createdBefore, staffName, country, leadQuality]);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 h-[440px] flex flex-col">

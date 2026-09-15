@@ -39,6 +39,8 @@ interface LeadItem {
   company: string | null;
   staff: string | null;
   status: string | null;
+  country: string | null;
+  leadQuality: string | null;
   phone: string | null;
   createdAt: string;
   latestNote: string | null;
@@ -100,6 +102,25 @@ function followUpTypeLabel(type: string | null) {
   return "—";
 }
 
+const QUALITY_LABEL: Record<string, string> = {
+  POTENTIAL_DEAL: "Potential Deal",
+  NURTURING: "Nurturing",
+  UNQUALIFIED: "Lead Unqualified",
+};
+
+// Same auth-aware blob-download pattern as Reports/KpiReportSection.tsx's
+// downloadCsv — a plain <a href> wouldn't carry the Bearer token this app's
+// API client attaches to every request.
+async function downloadDailyLeadsCsv(params: Record<string, unknown>) {
+  const res = await api.get("/crm-lead-reports/daily/leads.csv", { params, responseType: "blob" });
+  const url = window.URL.createObjectURL(new Blob([res.data]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `daily-report-leads-${params.from}-to-${params.to}.csv`;
+  link.click();
+  window.URL.revokeObjectURL(url);
+}
+
 // A single day reads as "Friday, September 12, 2026"; a real range reads as
 // "Sep 1 – Sep 10, 2026" — the report covers every day in between either way.
 function formatRange(fromIso: string, toIso: string) {
@@ -123,11 +144,13 @@ export default function DailyReportSection() {
   const [fromDate, setFromDate] = useState(nepalDateStr(1));
   const [toDate, setToDate] = useState(nepalDateStr(0));
   const leadLink = useLeadReportLink();
-  const { staffName } = useLeadDateFilter();
+  const { staffName, country, leadQuality } = useLeadDateFilter();
 
   useEffect(() => {
-    api.get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate } }).then((res) => setReport(res.data));
-  }, [staffName, fromDate, toDate]);
+    api
+      .get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate, country, leadQuality } })
+      .then((res) => setReport(res.data));
+  }, [staffName, fromDate, toDate, country, leadQuality]);
 
   if (!report) return <p className="text-sm text-slate-400 py-12 text-center">Loading...</p>;
 
@@ -174,7 +197,15 @@ export default function DailyReportSection() {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4">
-        <h3 className="text-sm font-medium text-slate-700 mb-3">Leads assigned per staff</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-medium text-slate-700">Leads assigned per staff</h3>
+          <button
+            onClick={() => downloadDailyLeadsCsv({ staffName, from: fromDate, to: toDate, country, leadQuality })}
+            className="text-xs text-slate-500 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50"
+          >
+            Download CSV
+          </button>
+        </div>
         {report.leadsAssigned.length === 0 ? (
           <p className="text-xs text-slate-400 mb-3">No leads have a Staff Name assigned yet.</p>
         ) : (
@@ -436,6 +467,8 @@ function LeadsTable({
               <th className="px-4 pb-2">Lead</th>
               <th className="px-2 pb-2">Staff</th>
               <th className="px-2 pb-2">Status</th>
+              <th className="px-2 pb-2">Country</th>
+              <th className="px-2 pb-2">Lead Quality</th>
               <th className="px-2 pb-2">Call status</th>
               <th className="px-2 pb-2">Call date &amp; time</th>
               <th className="px-2 pb-2">Next follow up</th>
@@ -455,6 +488,8 @@ function LeadsTable({
                 </td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.staff ?? "Unassigned"}</td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.status ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.country ?? "—"}</td>
+                <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.leadQuality ? QUALITY_LABEL[l.leadQuality] : "—"}</td>
                 <td className="px-2 py-2 text-slate-600 whitespace-nowrap">{l.callStatus ?? "Not Started"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">{l.callAt ? new Date(l.callAt).toLocaleString() : "—"}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs whitespace-nowrap">
@@ -476,7 +511,7 @@ function LeadsTable({
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={11} className="px-4 py-6 text-center text-slate-400">
                   {emptyLabel}
                 </td>
               </tr>

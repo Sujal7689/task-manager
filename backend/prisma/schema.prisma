@@ -703,6 +703,9 @@ model CrmLead {
   leadSource     String?   @map("lead_source")
   description    String?
   tags           String[]  @default([])
+  // Zoho's standard "Country" lead field. Added after the fact — existing
+  // leads won't have this until the next full re-sync (see README).
+  country        String?
 
   // Raw Lead_Status picklist value plus the derived funnel bucket it maps to
   // (see modules/crmLeads/funnelStage.ts) — kept alongside each other so a
@@ -727,6 +730,11 @@ model CrmLead {
   // shared Staff filter). Zoho tracks no change history for it, so unlike
   // ownerName there's no equivalent of `ownerHistory` for this field.
   staffName      String?   @map("staff_name")
+
+  // Locally-managed classification — never synced from Zoho, set from
+  // within this app only (Lead-wise table's inline editor). Nullable/unset
+  // by default for every lead until someone classifies it.
+  leadQuality    CrmLeadQuality? @map("lead_quality")
 
   converted            Boolean   @default(false)
   convertedAt           DateTime? @map("converted_at")
@@ -755,7 +763,17 @@ model CrmLead {
   @@index([ownerId])
   @@index([staffName])
   @@index([zohoModifiedTime])
+  @@index([country])
+  @@index([leadQuality])
   @@map("crm_leads")
+}
+
+// Locally-managed lead classification (not a Zoho field) — set by staff from
+// the Lead-wise table to triage which leads are worth chasing.
+enum CrmLeadQuality {
+  POTENTIAL_DEAL
+  NURTURING
+  UNQUALIFIED
 }
 
 // Unified Notes/Calls/Events/Tasks/Emails feed for a lead — the single table

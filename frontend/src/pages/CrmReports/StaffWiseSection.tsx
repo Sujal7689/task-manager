@@ -41,12 +41,14 @@ export default function StaffWiseSection() {
   const [detail, setDetail] = useState<StaffDetail | null>(null);
   const [leadsView, setLeadsView] = useState<"table" | "kanban">("table");
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumnData[]>([]);
-  const { createdSince, createdBefore, staffName: globalStaffFilter } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName: globalStaffFilter, country, leadQuality } = useLeadDateFilter();
   const leadLink = useLeadReportLink();
 
   useEffect(() => {
-    api.get<StaffOverviewRow[]>("/crm-lead-reports/staff", { params: { createdSince, createdBefore, staffName: globalStaffFilter } }).then((res) => setOverview(res.data));
-  }, [createdSince, createdBefore, globalStaffFilter]);
+    api
+      .get<StaffOverviewRow[]>("/crm-lead-reports/staff", { params: { createdSince, createdBefore, staffName: globalStaffFilter, country, leadQuality } })
+      .then((res) => setOverview(res.data));
+  }, [createdSince, createdBefore, globalStaffFilter, country, leadQuality]);
 
   useEffect(() => {
     if (!selectedStaff) {
@@ -54,16 +56,16 @@ export default function StaffWiseSection() {
       return;
     }
     api
-      .get<StaffDetail>(`/crm-lead-reports/staff/${encodeURIComponent(selectedStaff)}`, { params: { createdSince, createdBefore } })
+      .get<StaffDetail>(`/crm-lead-reports/staff/${encodeURIComponent(selectedStaff)}`, { params: { createdSince, createdBefore, country, leadQuality } })
       .then((res) => setDetail(res.data));
-  }, [selectedStaff, createdSince, createdBefore]);
+  }, [selectedStaff, createdSince, createdBefore, country, leadQuality]);
 
   useEffect(() => {
     if (!selectedStaff || leadsView !== "kanban") return;
     api
-      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { staffName: selectedStaff, createdSince, createdBefore } })
+      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { staffName: selectedStaff, createdSince, createdBefore, country, leadQuality } })
       .then((res) => setKanbanColumns(res.data));
-  }, [selectedStaff, leadsView, createdSince, createdBefore]);
+  }, [selectedStaff, leadsView, createdSince, createdBefore, country, leadQuality]);
 
   function selectStaff(name: string) {
     setSearchParams((prev) => {
