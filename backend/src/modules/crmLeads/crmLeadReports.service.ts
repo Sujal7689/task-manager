@@ -972,16 +972,23 @@ export async function getDailyReport(
     // itself, so this can't mean "who it was assigned to back then" — it
     // means "of the leads that came in during this window, who holds them
     // now," scoped by `zohoCreatedTime` the same way every other
-    // creation-date filter in this module works.
+    // creation-date filter in this module works. `nameCond` is only
+    // `undefined` when there's no staff filter AND no role-scope
+    // restriction (unrestricted Admin/Manager) — in that one case, unlike
+    // every other query in this module, we deliberately do NOT force
+    // `staffName: { not: null }`, so unassigned leads count toward the
+    // total too. The moment a specific staff is chosen (or a scoped role
+    // narrows it), `nameCond` is defined and naturally excludes unassigned
+    // leads — no explicit null-exclusion needed either way.
     prisma.crmLead.groupBy({
       by: ["staffName"],
-      where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range, ...refine },
+      where: { ...(nameCond !== undefined ? { staffName: nameCond } : {}), zohoCreatedTime: range, ...refine },
       _count: { _all: true },
     }),
     // Same set of leads as leadsAssignedRaw, but row-by-row — a "Leads"
     // table alongside Tasks/Calls, not just the per-staff count widget.
     prisma.crmLead.findMany({
-      where: { staffName: nameCond !== undefined ? nameCond : { not: null }, zohoCreatedTime: range, ...refine },
+      where: { ...(nameCond !== undefined ? { staffName: nameCond } : {}), zohoCreatedTime: range, ...refine },
       select: { id: true, fullName: true, company: true, staffName: true, leadStatus: true, phone: true, country: true, leadQuality: true, zohoCreatedTime: true },
       orderBy: { zohoCreatedTime: "desc" },
     }),
@@ -1003,6 +1010,12 @@ export async function getDailyReport(
     .filter((r) => r.staffName)
     .map((r) => ({ staff: r.staffName as string, count: r._count._all }))
     .sort((a, b) => b.count - a.count);
+
+  // Assigned-vs-unassigned split for the Leads overview card — same
+  // classification the Tasks/Calls cards already show (completed-vs-due,
+  // completed-vs-missed), just for staffing instead of status.
+  const leadsAssignedCount = leadsListRaw.filter((l) => l.staffName !== null).length;
+  const leadsUnassignedCount = leadsListRaw.length - leadsAssignedCount;
 
   const leads: DailyLeadItem[] = leadsListRaw.map((l) => ({
     leadId: l.id,
@@ -1039,7 +1052,7 @@ export async function getDailyReport(
     leadsAssigned,
     taskComparison,
     callComparison,
-    leads: { total: leads.length, items: leads },
+    leads: { total: leads.length, assigned: leadsAssignedCount, unassigned: leadsUnassignedCount, items: leads },
     completed: { total: completed.length, items: completed },
     due: { total: due.length, items: due },
     calls: { total: calls.length, missed: callsMissed.length, items: calls },

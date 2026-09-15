@@ -53,6 +53,8 @@ interface LeadItem {
 
 interface LeadsSection {
   total: number;
+  assigned: number;
+  unassigned: number;
   items: LeadItem[];
 }
 
@@ -183,7 +185,11 @@ export default function DailyReportSection() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <OverviewStat label="Leads" value={report.leads.total} />
+        <OverviewStat
+          label="Leads"
+          value={report.leads.total}
+          breakdown={`${report.leads.assigned} assigned · ${report.leads.unassigned} unassigned`}
+        />
         <OverviewStat
           label="Tasks (completed + due)"
           value={report.completed.total + report.due.total}

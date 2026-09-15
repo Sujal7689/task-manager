@@ -545,10 +545,22 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   Leads/Calls only per client confirmation (not the internal Task app), and
   deliberately ignores the leads-since cutoff filter used everywhere else —
   work matters regardless of how old the underlying lead is.
-  - **Overview stat breakdowns (2026-09-13)**: the Tasks and Calls overview
-    cards now show a "X completed · Y due"/"X completed · Y missed"
-    subtitle under the combined total, instead of just one number that
-    hides whether it's mostly done or mostly outstanding.
+  - **Overview stat breakdowns (2026-09-13, extended 2026-09-15)**: the
+    Tasks and Calls overview cards show a "X completed · Y due"/"X
+    completed · Y missed" subtitle under the combined total, instead of
+    just one number that hides whether it's mostly done or mostly
+    outstanding. The Leads card gets the same treatment — "X assigned · Y
+    unassigned" — which required a matching fix to what "total" even means:
+    the two lead-level queries behind this card and the Leads table
+    (`leadsAssignedRaw`/`leadsListRaw` in `getDailyReport`) used to force
+    `staffName: { not: null }` whenever no staff filter was selected,
+    silently dropping unassigned leads out of the total entirely. Now that
+    condition only applies once `nameCond` is actually defined — i.e. a
+    specific staff was chosen, or a scoped role (Team Lead/Staff) narrows
+    it — so the default "no filter" view counts every lead, unassigned
+    included, and picking a specific staff still correctly excludes
+    unassigned (there's nothing to include — a chosen staff member's leads
+    are by definition assigned to them).
   - **Leads table (2026-09-13)**: a row-level table nested inside the
     "Leads assigned per staff" card, below the per-staff badges — same
     leads as that count/breakdown (created within the selected range,
