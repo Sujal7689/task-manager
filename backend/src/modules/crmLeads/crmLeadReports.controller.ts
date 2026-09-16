@@ -45,6 +45,7 @@ async function parseFilters(req: Request): Promise<ReportFilters> {
     staffName: parseStringParam(req.query.staffName),
     country: parseStringParam(req.query.country),
     leadQuality: parseStringParam(req.query.leadQuality),
+    assignment: parseStringParam(req.query.assignment),
     scope: await getScope(req),
   };
 }
@@ -76,7 +77,8 @@ export async function dailyReportHandler(req: Request, res: Response) {
   const toDate = parseDate(req.query.to, "to");
   const country = parseStringParam(req.query.country);
   const leadQuality = parseStringParam(req.query.leadQuality);
-  res.json(await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality));
+  const assignment = parseStringParam(req.query.assignment);
+  res.json(await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality, assignment));
 }
 
 const LEAD_QUALITY_LABEL: Record<string, string> = {
@@ -91,7 +93,8 @@ export async function dailyReportLeadsCsvHandler(req: Request, res: Response) {
   const toDate = parseDate(req.query.to, "to");
   const country = parseStringParam(req.query.country);
   const leadQuality = parseStringParam(req.query.leadQuality);
-  const report = await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality);
+  const assignment = parseStringParam(req.query.assignment);
+  const report = await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality, assignment);
 
   const rows = report.leads.items.map((l) => ({
     Lead: l.leadName,
@@ -121,7 +124,8 @@ export async function closureReportHandler(req: Request, res: Response) {
   const staffName = parseStringParam(req.query.staffName);
   const country = parseStringParam(req.query.country);
   const leadQuality = parseStringParam(req.query.leadQuality);
-  res.json(await service.getClosureReport(period, staffName, await getScope(req), country, leadQuality));
+  const assignment = parseStringParam(req.query.assignment);
+  res.json(await service.getClosureReport(period, staffName, await getScope(req), country, leadQuality, assignment));
 }
 
 export async function groupedByStaffHandler(req: Request, res: Response) {

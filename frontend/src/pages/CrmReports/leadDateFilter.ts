@@ -6,7 +6,15 @@ import { useSearchParams } from "react-router-dom";
 // `staffFilter` holds the lead's "Staff Name" custom field value, not the
 // Zoho Owner — see crmLeadReports.service.ts for why that distinction matters.
 export const DEFAULT_CUTOFF_DATE = "2026-08-01";
-const FILTER_PARAM_KEYS = ["cutoffOn", "cutoffDate", "cutoffDateTo", "staffFilter", "countryFilter", "qualityFilter"] as const;
+export const FILTER_PARAM_KEYS = [
+  "cutoffOn",
+  "cutoffDate",
+  "cutoffDateTo",
+  "staffFilter",
+  "countryFilter",
+  "qualityFilter",
+  "assignmentFilter",
+] as const;
 
 export function useLeadDateFilter() {
   const [searchParams] = useSearchParams();
@@ -16,6 +24,7 @@ export function useLeadDateFilter() {
   const staffFilter = searchParams.get("staffFilter") || "";
   const countryFilter = searchParams.get("countryFilter") || "";
   const qualityFilter = searchParams.get("qualityFilter") || "";
+  const assignmentFilter = searchParams.get("assignmentFilter") || "";
   return {
     on,
     date,
@@ -23,11 +32,13 @@ export function useLeadDateFilter() {
     staffFilter,
     countryFilter,
     qualityFilter,
+    assignmentFilter,
     createdSince: on ? date : undefined,
     createdBefore: on && dateTo ? dateTo : undefined,
     staffName: staffFilter || undefined,
     country: countryFilter || undefined,
     leadQuality: qualityFilter || undefined,
+    assignment: assignmentFilter || undefined,
   };
 }
 

@@ -90,6 +90,37 @@ function nepalDateStr(daysAgo: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// "Today" as a UTC-midnight Date in Nepal-local terms, so calendar-boundary
+// arithmetic (start of week/month/quarter) below isn't thrown off by the
+// browser's own timezone.
+function nepalTodayDate(): Date {
+  const d = new Date(Date.now() + (5 * 60 + 45) * 60 * 1000);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// Monday-start week — start of week through today (not the full week ahead),
+// matching how "this month"/"this quarter" below also mean "to date", not a
+// forward-looking range.
+function startOfWeek(d: Date): Date {
+  const diff = (d.getUTCDay() + 6) % 7; // days since Monday
+  const start = new Date(d);
+  start.setUTCDate(d.getUTCDate() - diff);
+  return start;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+function startOfQuarter(d: Date): Date {
+  const quarter = Math.floor(d.getUTCMonth() / 3);
+  return new Date(Date.UTC(d.getUTCFullYear(), quarter * 3, 1));
+}
+
 function formatShort(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
@@ -118,7 +149,7 @@ async function downloadDailyLeadsCsv(params: Record<string, unknown>) {
   const url = window.URL.createObjectURL(new Blob([res.data]));
   const link = document.createElement("a");
   link.href = url;
-  link.download = `daily-report-leads-${params.from}-to-${params.to}.csv`;
+  link.download = `crm-report-leads-${params.from}-to-${params.to}.csv`;
   link.click();
   window.URL.revokeObjectURL(url);
 }
@@ -146,26 +177,44 @@ export default function DailyReportSection() {
   const [fromDate, setFromDate] = useState(nepalDateStr(1));
   const [toDate, setToDate] = useState(nepalDateStr(0));
   const leadLink = useLeadReportLink();
-  const { staffName, country, leadQuality } = useLeadDateFilter();
+  const { staffName, country, leadQuality, assignment } = useLeadDateFilter();
 
   useEffect(() => {
     api
-      .get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate, country, leadQuality } })
+      .get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate, country, leadQuality, assignment } })
       .then((res) => setReport(res.data));
-  }, [staffName, fromDate, toDate, country, leadQuality]);
+  }, [staffName, fromDate, toDate, country, leadQuality, assignment]);
 
   if (!report) return <p className="text-sm text-slate-400 py-12 text-center">Loading...</p>;
 
   const isDefaultRange = fromDate === nepalDateStr(1) && toDate === nepalDateStr(0);
 
+  function applyPeriod(startOf: (d: Date) => Date) {
+    const today = nepalTodayDate();
+    setFromDate(toDateStr(startOf(today)));
+    setToDate(toDateStr(today));
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900">Daily Report</h2>
+          <h2 className="text-xl font-semibold text-slate-900">CRM Report</h2>
           <p className="text-sm text-slate-500">{formatRange(report.fromDate, report.toDate)} (Nepal time)</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1 text-xs">
+            <button onClick={() => applyPeriod(startOfWeek)} className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+              This Week
+            </button>
+            <button onClick={() => applyPeriod(startOfMonth)} className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+              This Month
+            </button>
+            <button onClick={() => applyPeriod(startOfQuarter)} className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50">
+              This Quarter
+            </button>
+          </div>
+          <span className="w-px h-5 bg-slate-200" />
           <label className="text-xs text-slate-500">From</label>
           <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="input w-auto py-1 text-sm" />
           <label className="text-xs text-slate-500">To</label>
@@ -206,7 +255,7 @@ export default function DailyReportSection() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-slate-700">Leads assigned per staff</h3>
           <button
-            onClick={() => downloadDailyLeadsCsv({ staffName, from: fromDate, to: toDate, country, leadQuality })}
+            onClick={() => downloadDailyLeadsCsv({ staffName, from: fromDate, to: toDate, country, leadQuality, assignment })}
             className="text-xs text-slate-500 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50"
           >
             Download CSV

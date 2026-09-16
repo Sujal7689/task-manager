@@ -28,11 +28,11 @@ const PERIODS = [
 export default function ClosureReportSection() {
   const [period, setPeriod] = useState<"day" | "week" | "month">("day");
   const [report, setReport] = useState<ClosureReport | null>(null);
-  const { staffName, country, leadQuality } = useLeadDateFilter();
+  const { staffName, country, leadQuality, assignment } = useLeadDateFilter();
 
   useEffect(() => {
-    api.get<ClosureReport>("/crm-lead-reports/closure", { params: { period, staffName, country, leadQuality } }).then((res) => setReport(res.data));
-  }, [period, staffName, country, leadQuality]);
+    api.get<ClosureReport>("/crm-lead-reports/closure", { params: { period, staffName, country, leadQuality, assignment } }).then((res) => setReport(res.data));
+  }, [period, staffName, country, leadQuality, assignment]);
 
   const rangeLabel = report
     ? period === "day"

@@ -79,6 +79,31 @@ function scopedStaffSqlFragment(requested: string | undefined, scope: string[] |
   return Prisma.sql` AND "staff_name" = ANY(${cond.in})`;
 }
 
+type StaffNameCond = string | { in: string[] } | undefined;
+type StaffNameWhere = string | null | { in: string[] } | { not: null } | undefined;
+
+// Folds the new Assigned/Unassigned filter into whatever staffName condition
+// a staff-filter/scope selection already produced, rather than building two
+// independent `{ staffName: ... }` fragments that would silently clobber
+// each other when spread into the same `where` object (both target the same
+// Prisma field). "Unassigned" + an already-narrowed staffCond (a specific
+// staff chosen, or a scoped Team Lead/Staff role) is a genuine
+// contradiction — a real name is never "unassigned" — so it fails closed
+// (`{ in: [] }`) instead of silently picking one side. "Assigned" simply
+// narrows further to non-null when nothing else already narrowed it.
+function resolveStaffNameWhere(staffCond: StaffNameCond, assignment: string | undefined): StaffNameWhere {
+  if (assignment === "unassigned") return staffCond !== undefined ? { in: [] } : null;
+  if (assignment === "assigned") return staffCond !== undefined ? staffCond : { not: null };
+  return staffCond;
+}
+
+// Raw-SQL equivalent for the conversion-rate query's staff_name column.
+function assignmentSqlFragment(assignment: string | undefined): Prisma.Sql {
+  if (assignment === "unassigned") return Prisma.sql` AND "staff_name" IS NULL`;
+  if (assignment === "assigned") return Prisma.sql` AND "staff_name" IS NOT NULL`;
+  return Prisma.empty;
+}
+
 const PAGE_SIZE_DEFAULT = 25;
 const PAGE_SIZE_MAX = 100;
 
@@ -105,6 +130,9 @@ export interface ReportFilters {
   // filter available uniformly across every CRM Reports tab.
   country?: string;
   leadQuality?: string;
+  // "assigned" | "unassigned" | undefined (any other value ignored) — see
+  // resolveStaffNameWhere for how this combines with staffName/scope.
+  assignment?: string;
 }
 
 function isLeadQuality(value: string | undefined): value is CrmLeadQuality {
@@ -142,9 +170,10 @@ export async function getAssignmentOverview(params: AssignmentOverviewParams) {
 
   const dateRange = leadDateRange(params.createdSince, params.createdBefore);
   const staffCond = scopedNameFilter(params.staffName, params.scope);
+  const staffNameWhere = resolveStaffNameWhere(staffCond, params.assignment);
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
+    ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
     ...leadRefineWhere(params.country, params.leadQuality),
     ...(params.search
       ? {
@@ -200,9 +229,10 @@ export async function getAssignmentOverview(params: AssignmentOverviewParams) {
 export async function getLeadsGroupedByStaff(filters: ReportFilters = {}) {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
   const staffCond = scopedNameFilter(filters.staffName, filters.scope);
+  const staffNameWhere = resolveStaffNameWhere(staffCond, filters.assignment);
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
+    ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
     ...leadRefineWhere(filters.country, filters.leadQuality),
   };
   const leads = await prisma.crmLead.findMany({
@@ -250,9 +280,14 @@ export async function getActivityFeed(params: { page?: number; pageSize?: number
   // sub-filter alongside the date range instead of two separate spreads,
   // since Prisma would otherwise let a later `lead: {...}` clobber an
   // earlier one rather than merging them.
+  // Assignment is a lead-level property too (unlike the staff filter above,
+  // which targets actorName) — no staffCond competing for this same nested
+  // field here, so it can just fold straight in.
+  const assignmentWhere = resolveStaffNameWhere(undefined, params.assignment);
   const leadFilter: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
     ...leadRefineWhere(params.country, params.leadQuality),
+    ...(assignmentWhere !== undefined ? { staffName: assignmentWhere } : {}),
   };
   const where: Prisma.CrmLeadActivityWhereInput = {
     ...(params.type ? { activityType: params.type } : {}),
@@ -295,7 +330,7 @@ interface PeriodCount {
 }
 
 export async function getConversionRate(granularity: "day" | "month", filters: ReportFilters = {}) {
-  const { createdSince, createdBefore, staffName, scope, country, leadQuality } = filters;
+  const { createdSince, createdBefore, staffName, scope, country, leadQuality, assignment } = filters;
   const rollingWindowStart = granularity === "day" ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
   // The rolling window and the client's cutoff both narrow the range — use
   // whichever is later, so turning the cutoff on never re-includes data the
@@ -307,8 +342,9 @@ export async function getConversionRate(granularity: "day" | "month", filters: R
   const staffFragment = scopedStaffSqlFragment(staffName, scope);
   const countryFragment = country ? Prisma.sql` AND "country" = ${country}` : Prisma.empty;
   const qualityFragment = isLeadQuality(leadQuality) ? Prisma.sql` AND "lead_quality" = ${leadQuality}::"CrmLeadQuality"` : Prisma.empty;
-  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}`;
-  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}`;
+  const assignmentFragment = assignmentSqlFragment(assignment);
+  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}${assignmentFragment}`;
+  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}${assignmentFragment}`;
 
   const [created, converted] =
     granularity === "day"
@@ -344,9 +380,10 @@ export async function getConversionRate(granularity: "day" | "month", filters: R
 export async function getStageWise(filters: ReportFilters = {}) {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
   const staffCond = scopedNameFilter(filters.staffName, filters.scope);
+  const staffNameWhere = resolveStaffNameWhere(staffCond, filters.assignment);
   const leadWhere: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
+    ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
     ...leadRefineWhere(filters.country, filters.leadQuality),
   };
   const counts = await prisma.crmLead.groupBy({ by: ["funnelStage"], where: leadWhere, _count: { _all: true } });
@@ -377,9 +414,10 @@ const KANBAN_STAGES = [...FUNNEL_ORDER, "DROPPED", "OTHER"];
 export async function getKanbanBoard(params: { search?: string } & ReportFilters = {}) {
   const dateRange = leadDateRange(params.createdSince, params.createdBefore);
   const staffCond = scopedNameFilter(params.staffName, params.scope);
+  const staffNameWhere = resolveStaffNameWhere(staffCond, params.assignment);
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...(staffCond !== undefined ? { staffName: staffCond } : {}),
+    ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
     ...leadRefineWhere(params.country, params.leadQuality),
     ...(params.search
       ? { OR: [{ fullName: { contains: params.search, mode: "insensitive" } }, { company: { contains: params.search, mode: "insensitive" } }] }
@@ -406,10 +444,11 @@ export async function getKanbanBoard(params: { search?: string } & ReportFilters
 export async function listLeadsForSelector(search: string | undefined, filters: ReportFilters = {}) {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
   const staffCond = scopedNameFilter(filters.staffName, filters.scope);
+  const staffNameWhere = resolveStaffNameWhere(staffCond, filters.assignment);
   return prisma.crmLead.findMany({
     where: {
       ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-      ...(staffCond !== undefined ? { staffName: staffCond } : {}),
+      ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
       ...leadRefineWhere(filters.country, filters.leadQuality),
       ...(search ? { OR: [{ fullName: { contains: search, mode: "insensitive" } }, { company: { contains: search, mode: "insensitive" } }] } : {}),
     },
@@ -570,9 +609,15 @@ export async function listStaffOverview(filters: ReportFilters = {}): Promise<St
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
   const staffCond = scopedNameFilter(filters.staffName, filters.scope);
   const refine = leadRefineWhere(filters.country, filters.leadQuality);
+  // This view is inherently "per staff member" — it defaults to excluding
+  // unassigned leads (nothing to group them under) unless the caller
+  // explicitly asks for `assignment=unassigned`, in which case it correctly
+  // returns no rows (there's no staff to report on).
+  const staffNameWhere =
+    filters.assignment !== undefined ? resolveStaffNameWhere(staffCond, filters.assignment) : (staffCond ?? { not: null });
   const leads = await prisma.crmLead.findMany({
     where: {
-      staffName: staffCond !== undefined ? staffCond : { not: null },
+      staffName: staffNameWhere,
       ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
       ...refine,
     },
@@ -929,6 +974,7 @@ export async function getDailyReport(
   toDate?: Date,
   country?: string,
   leadQuality?: string,
+  assignment?: string,
 ) {
   // `from`/`to` each resolve to a full Nepal-local day, then the range spans
   // from the start of `from`'s day to the END of `to`'s day (inclusive of
@@ -938,9 +984,12 @@ export async function getDailyReport(
   const range = { gte: from.start, lt: to.end };
   const leadSelect = { select: { fullName: true, company: true, staffName: true } } as const;
   const nameCond = scopedNameFilter(staffName, scope);
+  const staffNameWhere = resolveStaffNameWhere(nameCond, assignment);
   const refine = leadRefineWhere(country, leadQuality);
   const leadStaffFilter =
-    nameCond !== undefined || Object.keys(refine).length > 0 ? { lead: { ...(nameCond !== undefined ? { staffName: nameCond } : {}), ...refine } } : {};
+    staffNameWhere !== undefined || Object.keys(refine).length > 0
+      ? { lead: { ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}), ...refine } }
+      : {};
 
   const [completedRaw, dueRaw, callsRaw, leadsAssignedRaw, leadsListRaw] = await Promise.all([
     // Tasks whose status turned Completed, last touched anywhere in the
@@ -973,22 +1022,22 @@ export async function getDailyReport(
     // means "of the leads that came in during this window, who holds them
     // now," scoped by `zohoCreatedTime` the same way every other
     // creation-date filter in this module works. `nameCond` is only
-    // `undefined` when there's no staff filter AND no role-scope
-    // restriction (unrestricted Admin/Manager) — in that one case, unlike
-    // every other query in this module, we deliberately do NOT force
+    // `staffNameWhere` is `undefined` when there's no staff filter, no
+    // role-scope restriction, AND no assignment filter — in that one case,
+    // unlike every other query in this module, we deliberately do NOT force
     // `staffName: { not: null }`, so unassigned leads count toward the
-    // total too. The moment a specific staff is chosen (or a scoped role
-    // narrows it), `nameCond` is defined and naturally excludes unassigned
-    // leads — no explicit null-exclusion needed either way.
+    // total too. Choosing a specific staff, a scoped role, or an explicit
+    // `assignment=assigned/unassigned` all resolve `staffNameWhere` to
+    // something defined, which naturally narrows appropriately.
     prisma.crmLead.groupBy({
       by: ["staffName"],
-      where: { ...(nameCond !== undefined ? { staffName: nameCond } : {}), zohoCreatedTime: range, ...refine },
+      where: { ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}), zohoCreatedTime: range, ...refine },
       _count: { _all: true },
     }),
     // Same set of leads as leadsAssignedRaw, but row-by-row — a "Leads"
     // table alongside Tasks/Calls, not just the per-staff count widget.
     prisma.crmLead.findMany({
-      where: { ...(nameCond !== undefined ? { staffName: nameCond } : {}), zohoCreatedTime: range, ...refine },
+      where: { ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}), zohoCreatedTime: range, ...refine },
       select: { id: true, fullName: true, company: true, staffName: true, leadStatus: true, phone: true, country: true, leadQuality: true, zohoCreatedTime: true },
       orderBy: { zohoCreatedTime: "desc" },
     }),
@@ -1080,11 +1129,22 @@ export interface ClosureReportRow {
   dealsConverted: number;
 }
 
-export async function getClosureReport(period: ClosurePeriod, staffName?: string, scope?: string[] | null, country?: string, leadQuality?: string) {
+export async function getClosureReport(
+  period: ClosurePeriod,
+  staffName?: string,
+  scope?: string[] | null,
+  country?: string,
+  leadQuality?: string,
+  assignment?: string,
+) {
   const { start, end } = kathmanduPeriodBounds(period);
   const nameCond = scopedNameFilter(staffName, scope);
+  // Same "per staff" default as listStaffOverview: excludes unassigned
+  // unless `assignment=unassigned` is explicitly requested (in which case
+  // there's correctly nothing to report — no staff to credit it to).
+  const staffNameWhere = assignment !== undefined ? resolveStaffNameWhere(nameCond, assignment) : (nameCond ?? { not: null });
   const leadStaffWhere: Prisma.CrmLeadWhereInput = {
-    staffName: nameCond !== undefined ? nameCond : { not: null },
+    staffName: staffNameWhere,
     ...leadRefineWhere(country, leadQuality),
   };
 

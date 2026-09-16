@@ -5,12 +5,15 @@ import StaffWiseSection from "./StaffWiseSection";
 import DailyReportSection from "./DailyReportSection";
 import ClosureReportSection from "./ClosureReportSection";
 import LeadDateFilterBar from "./LeadDateFilterBar";
+import { FILTER_PARAM_KEYS } from "./leadDateFilter";
 
+// "daily-report" key kept as-is (renamed only its label to "CRM Report")
+// so existing bookmarks/links with ?report=daily-report keep working.
 const reportTabs = [
   { key: "dashboard", label: "Dashboard", Component: DashboardSection, showDateRange: true },
+  { key: "daily-report", label: "CRM Report", Component: DailyReportSection, showDateRange: false },
   { key: "lead-wise", label: "Lead-wise", Component: LeadWiseSection, showDateRange: true },
   { key: "staff-wise", label: "Staff-wise", Component: StaffWiseSection, showDateRange: true },
-  { key: "daily-report", label: "Daily Report", Component: DailyReportSection, showDateRange: false },
   { key: "closure-report", label: "Closure Report", Component: ClosureReportSection, showDateRange: false },
 ] as const;
 
@@ -19,8 +22,6 @@ type ReportKey = (typeof reportTabs)[number]["key"];
 function isReportKey(value: string | null): value is ReportKey {
   return reportTabs.some((t) => t.key === value);
 }
-
-const FILTER_PARAM_KEYS = ["cutoffOn", "cutoffDate", "cutoffDateTo", "staffFilter"] as const;
 
 export default function CrmReportsHub() {
   const [searchParams, setSearchParams] = useSearchParams();

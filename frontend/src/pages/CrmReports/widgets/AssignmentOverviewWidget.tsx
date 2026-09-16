@@ -23,21 +23,21 @@ export default function AssignmentOverviewWidget() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const { createdSince, createdBefore, staffName, country, leadQuality } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality, assignment } = useLeadDateFilter();
   const leadLink = useLeadReportLink();
 
-  useEffect(() => setPage(1), [createdSince, createdBefore, staffName, country, leadQuality]);
+  useEffect(() => setPage(1), [createdSince, createdBefore, staffName, country, leadQuality, assignment]);
 
   useEffect(() => {
     api
       .get("/crm-lead-reports/dashboard/assignment-overview", {
-        params: { page, pageSize: PAGE_SIZE, search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality },
+        params: { page, pageSize: PAGE_SIZE, search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality, assignment },
       })
       .then((res) => {
         setRows(res.data.rows);
         setTotal(res.data.total);
       });
-  }, [page, search, createdSince, createdBefore, staffName, country, leadQuality]);
+  }, [page, search, createdSince, createdBefore, staffName, country, leadQuality, assignment]);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5 h-[440px] flex flex-col">

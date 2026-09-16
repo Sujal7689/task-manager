@@ -20,7 +20,7 @@ const QUALITY_OPTIONS = [
 // date range (`showDateRange={false}` hides just that half of the bar).
 export default function LeadDateFilterBar({ showDateRange = true }: { showDateRange?: boolean }) {
   const [, setSearchParams] = useSearchParams();
-  const { on, date, dateTo, staffFilter, countryFilter, qualityFilter } = useLeadDateFilter();
+  const { on, date, dateTo, staffFilter, countryFilter, qualityFilter, assignmentFilter } = useLeadDateFilter();
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
 
@@ -42,8 +42,9 @@ export default function LeadDateFilterBar({ showDateRange = true }: { showDateRa
   }
 
   // Shared setter for the simple "select a value or clear it" filters
-  // (staff/country/quality) — each just sets or deletes its own URL param.
-  function setParam(key: "staffFilter" | "countryFilter" | "qualityFilter", value: string) {
+  // (staff/country/quality/assignment) — each just sets or deletes its own
+  // URL param.
+  function setParam(key: "staffFilter" | "countryFilter" | "qualityFilter" | "assignmentFilter", value: string) {
     setSearchParams((prev) => {
       const params = new URLSearchParams(prev);
       if (value) params.set(key, value);
@@ -138,6 +139,19 @@ export default function LeadDateFilterBar({ showDateRange = true }: { showDateRa
       {qualityFilter && (
         <button onClick={() => setParam("qualityFilter", "")} className="text-xs text-slate-400 underline hover:text-slate-600">
           Clear quality
+        </button>
+      )}
+      <label className="flex items-center gap-2">
+        <span className="text-slate-600">Assignment</span>
+        <select value={assignmentFilter} onChange={(e) => setParam("assignmentFilter", e.target.value)} className="input w-auto py-1">
+          <option value="">All leads</option>
+          <option value="assigned">Assigned</option>
+          <option value="unassigned">Unassigned</option>
+        </select>
+      </label>
+      {assignmentFilter && (
+        <button onClick={() => setParam("assignmentFilter", "")} className="text-xs text-slate-400 underline hover:text-slate-600">
+          Clear assignment
         </button>
       )}
     </div>

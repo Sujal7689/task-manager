@@ -49,14 +49,14 @@ export default function DashboardSection() {
 }
 
 function DashboardKanban() {
-  const { createdSince, createdBefore, staffName, country, leadQuality } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality, assignment } = useLeadDateFilter();
   const [columns, setColumns] = useState<KanbanColumnData[]>([]);
 
   useEffect(() => {
     api
-      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { createdSince, createdBefore, staffName, country, leadQuality } })
+      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { createdSince, createdBefore, staffName, country, leadQuality, assignment } })
       .then((res) => setColumns(res.data));
-  }, [createdSince, createdBefore, staffName, country, leadQuality]);
+  }, [createdSince, createdBefore, staffName, country, leadQuality, assignment]);
 
   return <KanbanBoard columns={columns} />;
 }

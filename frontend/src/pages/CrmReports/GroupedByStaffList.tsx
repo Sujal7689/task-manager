@@ -23,14 +23,14 @@ interface StaffGroup {
 export default function GroupedByStaffList() {
   const [groups, setGroups] = useState<StaffGroup[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const { createdSince, createdBefore, staffName, country, leadQuality } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality, assignment } = useLeadDateFilter();
   const leadLink = useLeadReportLink();
 
   useEffect(() => {
     api
-      .get<StaffGroup[]>("/crm-lead-reports/dashboard/grouped-by-staff", { params: { createdSince, createdBefore, staffName, country, leadQuality } })
+      .get<StaffGroup[]>("/crm-lead-reports/dashboard/grouped-by-staff", { params: { createdSince, createdBefore, staffName, country, leadQuality, assignment } })
       .then((res) => setGroups(res.data));
-  }, [createdSince, createdBefore, staffName, country, leadQuality]);
+  }, [createdSince, createdBefore, staffName, country, leadQuality, assignment]);
 
   function toggle(name: string) {
     setExpanded((prev) => {

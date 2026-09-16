@@ -474,30 +474,48 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   type filter should mean exactly what it says, also hides the stage/owner
   change entries while active. Backed by `getLeadDetail`'s merged `timeline`
   array (`crmLeadReports.service.ts`), rendered in `LeadWiseSection.tsx`.
-- **Global date + staff + country + quality filter** — a shared filter bar
-  at the top of every CRM Reports tab
-  (`?cutoffOn=&cutoffDate=&cutoffDateTo=&staffFilter=&countryFilter=&qualityFilter=`
+- **Global date + staff + country + quality + assignment filter** — a
+  shared filter bar at the top of every CRM Reports tab
+  (`?cutoffOn=&cutoffDate=&cutoffDateTo=&staffFilter=&countryFilter=&qualityFilter=&assignmentFilter=`
   in the URL, date-from default on / 2026-08-01): a from/to date range
-  narrowing to leads created in that window, plus Staff/Country/Lead Quality
-  dropdowns narrowing to one value each. Applied uniformly via
-  `createdSince`/`createdBefore`/`staffName`/`country`/`leadQuality` on every
-  service function (`ReportFilters` in `crmLeadReports.service.ts`); a
-  specifically-selected lead's own detail page ignores the date range (you
-  explicitly asked to see that one). The staff filter matches differently
-  depending on what's being measured: lead-level data (Assignment Overview,
-  Conversion Rate, Stage-wise, Kanban, Closure Report's deals) matches the
-  lead's own `staffName` field, while activity-level data (Activity Feed,
-  Daily Report, Closure Report's activities) matches `actorName` — who
-  actually performed that piece of work, which can genuinely differ from
-  who the lead is staffed to. Country and Lead Quality are always plain
-  lead-level equality filters (no actor-vs-lead distinction), applied via
-  the parent lead everywhere, including activity-level views. Country
-  options come from `GET /crm-lead-reports/countries` (distinct, non-null
-  values, scoped to what the requester can see) — same pattern as the
-  existing Staff dropdown's `GET /crm-lead-reports/staff`.
+  narrowing to leads created in that window, plus Staff/Country/Lead
+  Quality/Assignment dropdowns narrowing to one value each. Applied
+  uniformly via `createdSince`/`createdBefore`/`staffName`/`country`/
+  `leadQuality`/`assignment` on every service function (`ReportFilters` in
+  `crmLeadReports.service.ts`); a specifically-selected lead's own detail
+  page ignores the date range (you explicitly asked to see that one). The
+  staff filter matches differently depending on what's being measured:
+  lead-level data (Assignment Overview, Conversion Rate, Stage-wise,
+  Kanban, Closure Report's deals) matches the lead's own `staffName`
+  field, while activity-level data (Activity Feed, Daily Report, Closure
+  Report's activities) matches `actorName` — who actually performed that
+  piece of work, which can genuinely differ from who the lead is staffed
+  to. Country and Lead Quality are always plain lead-level equality
+  filters (no actor-vs-lead distinction), applied via the parent lead
+  everywhere, including activity-level views. Country options come from
+  `GET /crm-lead-reports/countries` (distinct, non-null values, scoped to
+  what the requester can see) — same pattern as the existing Staff
+  dropdown's `GET /crm-lead-reports/staff`.
   Closure Report doesn't get the date-range half of the bar (its own
   day/week/month toggle already scopes time), but does get staff/country/
-  quality.
+  quality/assignment.
+  - **Assigned/Unassigned filter (2026-09-16)**: `?assignment=assigned|
+    unassigned`, same "available on every page" treatment as
+    Country/Quality. Since this targets the exact same `staffName` field
+    the Staff dropdown and role-scoping already narrow, it's resolved
+    through one combining helper (`resolveStaffNameWhere` in
+    `crmLeadReports.service.ts`) rather than two independent `{ staffName:
+    ... }` fragments that would silently clobber each other when spread
+    into the same Prisma `where` object. Picking "Unassigned" while a
+    specific staff (or a scoped Team Lead/Staff role) is also active is a
+    genuine contradiction — a named person's lead is never unassigned — so
+    it fails closed (matches nothing) instead of picking one side
+    arbitrarily. On the two "per staff" views (Staff-wise overview,
+    Closure Report) that already defaulted to excluding unassigned leads
+    (there's no staff name to group them under), that default is preserved
+    unless `assignment` is explicitly set — explicitly asking for
+    "unassigned" there correctly returns nothing to report, rather than
+    silently reinterpreting the request.
   - **Country (2026-09-15)**: Zoho's standard `Country` lead field —
     previously not synced at all (not even into `rawData`, since the
     sync's field-select list never requested it). Added to `ZOHO_LEAD_FIELDS`
@@ -533,18 +551,33 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   view from another in-house tool the client already uses.
   (`CrmReports/GroupedByStaffList.tsx`, backed by `GET /crm-lead-reports/
   dashboard/grouped-by-staff`.)
-- **Daily Report tab** — a fourth CRM Reports tab, designed to fit on one
-  screen for the morning meeting rather than one long scroll: an overview
-  row (total leads / tasks / calls), a "leads assigned per staff"
-  breakdown, 2 comparison bar charts, and 4 tables (Leads, Tasks completed,
-  Tasks due, Calls), each a fixed-height card with its own internal scroll +
-  pagination (same convention as the Dashboard widgets) rather than growing
-  the page — you page through a section's rows instead of scrolling past
-  it. The Calls table spans both grid columns (`lg:col-span-2`) since it's
-  the odd one out in an otherwise 2-column layout. Scoped to CRM
-  Leads/Calls only per client confirmation (not the internal Task app), and
-  deliberately ignores the leads-since cutoff filter used everywhere else —
-  work matters regardless of how old the underlying lead is.
+- **CRM Report tab** (renamed from "Daily Report" 2026-09-16, moved to
+  right after Dashboard — same `daily-report` URL key/route kept
+  unchanged, so existing bookmarks/links with `?report=daily-report`
+  still work; only the label and its position in `reportTabs`
+  (`CrmReportsHub.tsx`) changed) — a second CRM Reports tab, designed to
+  fit on one screen for the morning meeting rather than one long scroll:
+  an overview row (total leads / tasks / calls), a "leads assigned per
+  staff" breakdown, 2 comparison bar charts, and 4 tables (Leads, Tasks
+  completed, Tasks due, Calls), each a fixed-height card with its own
+  internal scroll + pagination (same convention as the Dashboard widgets)
+  rather than growing the page — you page through a section's rows
+  instead of scrolling past it. The Calls table spans both grid columns
+  (`lg:col-span-2`) since it's the odd one out in an otherwise 2-column
+  layout. Scoped to CRM Leads/Calls only per client confirmation (not the
+  internal Task app), and deliberately ignores the leads-since cutoff
+  filter used everywhere else — work matters regardless of how old the
+  underlying lead is.
+  - **This Week / This Month / This Quarter (2026-09-16)**: quick-select
+    buttons next to the From/To inputs, each a "period to date" range
+    (Monday of the current week / 1st of the current month / 1st of the
+    current quarter, through *today* — not the rest of the period, which
+    hasn't happened yet) computed in Nepal-local terms
+    (`nepalTodayDate`/`startOfWeek`/`startOfMonth`/`startOfQuarter` in
+    `DailyReportSection.tsx`), then just set `fromDate`/`toDate` the same
+    way typing into the date inputs directly would — no separate
+    "period" concept on the backend, this is purely a frontend
+    convenience over the existing From/To range.
   - **Overview stat breakdowns (2026-09-13, extended 2026-09-15)**: the
     Tasks and Calls overview cards show a "X completed · Y due"/"X
     completed · Y missed" subtitle under the combined total, instead of
@@ -814,16 +847,16 @@ All endpoints under `/api` except `/api/auth/login` require
 **Phase 5 — Zoho CRM sync**
 - `GET /api/admin/zoho/status`, `GET /api/admin/zoho/sync-log`, `POST /api/admin/zoho/sync` (Admin only)
 - `GET /api/admin/crm-leads/status`, `GET /api/admin/crm-leads/sync-log`, `POST /api/admin/crm-leads/sync` (`?full=true` for a full backfill instead of incremental) (Admin only)
-- `GET /api/crm-lead-reports/dashboard/{assignment-overview,activity-feed,conversion-rate,stage-wise}` — CRM Reports Dashboard tab widgets (Admin/Manager/Team Lead); all accept `?createdSince=&createdBefore=&staffName=&country=&leadQuality=`
-- `GET /api/crm-lead-reports/kanban` — leads grouped by funnel stage (`?staffName=` scopes to one staff member, used by Staff-wise; also accepts `?country=&leadQuality=`); shared by the Dashboard/Lead-wise/Staff-wise Kanban views
-- `GET /api/crm-lead-reports/dashboard/grouped-by-staff` — every lead grouped by owner, for the Dashboard's "By Staff" view (`?country=&leadQuality=` too)
+- `GET /api/crm-lead-reports/dashboard/{assignment-overview,activity-feed,conversion-rate,stage-wise}` — CRM Reports Dashboard tab widgets (Admin/Manager/Team Lead); all accept `?createdSince=&createdBefore=&staffName=&country=&leadQuality=&assignment=`
+- `GET /api/crm-lead-reports/kanban` — leads grouped by funnel stage (`?staffName=` scopes to one staff member, used by Staff-wise; also accepts `?country=&leadQuality=&assignment=`); shared by the Dashboard/Lead-wise/Staff-wise Kanban views
+- `GET /api/crm-lead-reports/dashboard/grouped-by-staff` — every lead grouped by owner, for the Dashboard's "By Staff" view (`?country=&leadQuality=&assignment=` too)
 - `GET /api/crm-lead-reports/countries` — distinct, non-null Country values across leads the requester can see, populates the shared Country filter dropdown (mirrors `/staff` below)
-- `GET /api/crm-lead-reports/leads`, `GET /api/crm-lead-reports/leads/:id` — Lead-wise tab (selector + merged activity timeline, `?type=` filters to one activity type and hides stage/owner-change entries; selector also accepts `?country=&leadQuality=`)
+- `GET /api/crm-lead-reports/leads`, `GET /api/crm-lead-reports/leads/:id` — Lead-wise tab (selector + merged activity timeline, `?type=` filters to one activity type and hides stage/owner-change entries; selector also accepts `?country=&leadQuality=&assignment=`)
 - `PATCH /api/crm-lead-reports/leads/:id/quality` — sets/clears a lead's local-only Lead Quality (`{ "quality": "POTENTIAL_DEAL" | "NURTURING" | "UNQUALIFIED" | null }`); any role that can already see the lead under the usual row-level scope can call this
-- `GET /api/crm-lead-reports/staff` — Staff-wise tab's default overview (leads owned, conversion rate, activities logged, last activity per `staffName` — no one needs to be selected first; accepts `?country=&leadQuality=`), `GET /api/crm-lead-reports/staff/:staffName` for the drill-down detail (path segment is the Staff Name field's value, URL-encoded — not Owner)
-- `GET /api/crm-lead-reports/daily` — Daily Report tab (leads created, tasks completed, tasks due, calls, by staff — Nepal-time boundaries, ignores the leads-since date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — `?from=&to=`, a genuine inclusive date range defaulting to actual yesterday/today, covering every day in between, not just the two endpoints — and `?country=&leadQuality=`)
+- `GET /api/crm-lead-reports/staff` — Staff-wise tab's default overview (leads owned, conversion rate, activities logged, last activity per `staffName` — no one needs to be selected first; accepts `?country=&leadQuality=&assignment=` — `assignment=unassigned` here correctly returns no rows, since this view is inherently "per staff member"), `GET /api/crm-lead-reports/staff/:staffName` for the drill-down detail (path segment is the Staff Name field's value, URL-encoded — not Owner)
+- `GET /api/crm-lead-reports/daily` — CRM Report tab (leads created, tasks completed, tasks due, calls, by staff — Nepal-time boundaries, ignores the leads-since date-range filter; accepts `?staffName=`, matched against the parent lead's `staffName` for every row — `?from=&to=`, a genuine inclusive date range defaulting to actual yesterday/today, covering every day in between, not just the two endpoints — and `?country=&leadQuality=&assignment=`)
 - `GET /api/crm-lead-reports/daily/leads.csv` — same filters as `/daily`, streams the Leads table (plus Lead Quality) as a CSV download instead of JSON
-- `GET /api/crm-lead-reports/closure?period=day|week|month` — Closure Report tab (activities closed + deals converted per staff, Nepal-time period bounds; accepts `?staffName=&country=&leadQuality=`)
+- `GET /api/crm-lead-reports/closure?period=day|week|month` — Closure Report tab (activities closed + deals converted per staff, Nepal-time period bounds; accepts `?staffName=&country=&leadQuality=&assignment=` — same "no rows for unassigned" behavior as `/staff` above)
 
 **Phase 6 — admin & audit**
 - `GET /api/admin/audit-log`
