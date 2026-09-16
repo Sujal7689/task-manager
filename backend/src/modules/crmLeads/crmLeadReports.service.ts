@@ -2,7 +2,6 @@ import { CrmActivityType, CrmLeadQuality, Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../utils/appError";
 import { FUNNEL_ORDER } from "./funnelStage";
-import { getDirectReportIds } from "../users/users.service";
 
 // ---------------------------------------------------------------------------
 // Leads + Reports spec, Section 5: landing page widgets + Lead-wise/Staff-wise
@@ -33,19 +32,13 @@ import { getDirectReportIds } from "../users/users.service";
 // that's a property of the lead, not of an individual action taken on it.
 //
 // -------------------- Role-based visibility scope --------------------
-// Client direction, CRM Reports page ONLY (does not change scoping anywhere
-// else in the app): Admin/Manager see everything; Team Lead sees only their
-// own team; Staff sees only their own reports. "Team" reuses the same
-// reportingManagerId-based direct-reports rule already used for Task/
-// Timesheet/Attendance scoping (users.service.ts's getDirectReportIds) —
-// not a new convention. The wrinkle is that CrmLead has no FK to User at
-// all: `staffName`/`actorName` are free-text values synced from Zoho's
-// Staff Name picklist. So scoping works by resolving the allowed User ids
-// to their `name` values and matching on that string — a fuzzy join (it
-// depends on the Zoho picklist value matching User.name exactly), not a
-// real foreign key. Good enough for report visibility; a mismatched name
-// would just make that person's data invisible to themselves, fail-closed
-// rather than fail-open.
+// Client direction (2026-09-16), CRM Reports page ONLY (does not change
+// scoping anywhere else in the app): every role sees everything — the
+// earlier Team-Lead-sees-their-team / Staff-sees-themselves row-level
+// restriction has been lifted entirely. `null` is this module's existing
+// "unrestricted" convention (see scopedNameFilter/leadRefineWhere below),
+// so every caller of getCrmStaffScope already does the right thing with no
+// further changes needed elsewhere.
 // ---------------------------------------------------------------------------
 
 export interface ScopedRequester {
@@ -53,11 +46,8 @@ export interface ScopedRequester {
   role: Role;
 }
 
-export async function getCrmStaffScope(user: ScopedRequester): Promise<string[] | null> {
-  if (user.role === Role.ADMIN || user.role === Role.MANAGER) return null; // unrestricted
-  const ids = user.role === Role.TEAM_LEAD ? [...(await getDirectReportIds(user.id)), user.id] : [user.id];
-  const rows = await prisma.user.findMany({ where: { id: { in: ids } }, select: { name: true } });
-  return rows.map((r) => r.name);
+export async function getCrmStaffScope(_user: ScopedRequester): Promise<string[] | null> {
+  return null;
 }
 
 // Combines a free-text staff filter selection with the requester's role-based

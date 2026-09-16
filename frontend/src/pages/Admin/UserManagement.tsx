@@ -4,6 +4,7 @@ import { Company, Department, Role, User } from "../../types";
 import Pagination from "../../components/Pagination";
 import SearchInput from "../../components/SearchInput";
 import { useToast } from "../../context/ToastContext";
+import { roleLabel } from "../../lib/roleLabels";
 
 const roles: Role[] = ["ADMIN", "MANAGER", "TEAM_LEAD", "STAFF"];
 
@@ -188,7 +189,7 @@ export default function UserManagement() {
           <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="input" />
           <input type="password" placeholder="Password (min 8 chars)" value={password} onChange={(e) => setPassword(e.target.value)} required className="input" />
           <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="input">
-            {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+            {roles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
           </select>
           <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="input">
             <option value="">Company</option>
@@ -200,7 +201,7 @@ export default function UserManagement() {
           </select>
           <select value={reportingManagerId} onChange={(e) => setReportingManagerId(e.target.value)} className="input">
             <option value="">Reporting Manager (optional)</option>
-            {reportingManagerCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+            {reportingManagerCandidates.map((u) => <option key={u.id} value={u.id}>{u.name} ({roleLabel(u.role)})</option>)}
           </select>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={isFallback} onChange={(e) => setIsFallback(e.target.checked)} />
@@ -227,7 +228,7 @@ export default function UserManagement() {
                   placeholder="Email"
                 />
                 <select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value as Role })} className="input">
-                  {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+                  {roles.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                 </select>
                 <input
                   type="password"
@@ -248,7 +249,7 @@ export default function UserManagement() {
                 </select>
                 <select value={editing.reportingManagerId} onChange={(e) => setEditing({ ...editing, reportingManagerId: e.target.value })} className="input">
                   <option value="">No reporting manager</option>
-                  {reportingManagerCandidates.filter((u2) => u2.id !== u.id).map((u2) => <option key={u2.id} value={u2.id}>{u2.name} ({u2.role})</option>)}
+                  {reportingManagerCandidates.filter((u2) => u2.id !== u.id).map((u2) => <option key={u2.id} value={u2.id}>{u2.name} ({roleLabel(u2.role)})</option>)}
                 </select>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -270,7 +271,7 @@ export default function UserManagement() {
                 <div>
                   <p className="text-sm font-medium text-slate-900">{u.name} {u.isZohoFallbackAssignee && <span className="text-xs text-amber-600 ml-1">(Zoho fallback)</span>}</p>
                   <p className="text-xs text-slate-500">
-                    {u.email} · {u.role}
+                    {u.email} · {roleLabel(u.role)}
                     {u.reportingManagerId && <> · Reports to {managerNameById.get(u.reportingManagerId) ?? "—"}</>}
                     {(u.role === "MANAGER" || u.role === "TEAM_LEAD") && (
                       <>

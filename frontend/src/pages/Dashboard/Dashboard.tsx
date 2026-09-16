@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { roleLabel } from "../../lib/roleLabels";
 import CheckInOutWidget from "../../components/CheckInOutWidget";
 import MemberKpiWidget from "./MemberKpiWidget";
 import ProjectProgressWidget from "./ProjectProgressWidget";
@@ -49,7 +50,7 @@ export default function Dashboard() {
   return (
     <div>
       <h1 className="text-2xl font-semibold text-slate-900 mb-1">Welcome, {user?.name}</h1>
-      <p className="text-slate-500 mb-6 text-sm">Role: {user?.role}</p>
+      <p className="text-slate-500 mb-6 text-sm">Role: {user?.role ? roleLabel(user.role) : ""}</p>
 
       <div className="mb-8">
         <CheckInOutWidget />

@@ -204,6 +204,18 @@ nginx/nginx.conf
 - **Staff** — sees only tasks assigned to them; can update a task's **status**
   and **% complete** on their own tasks, but not other fields; sees the full
   leaderboard (peer scores are visible to everyone, per Section 12 decision #3).
+  **Display-only rename (2026-09-16)**: the UI shows this role as
+  "Employee" everywhere a role is rendered as text (role badges, the
+  role/reporting-manager `<select>`s in Admin → Users) — the underlying
+  `Role.STAFF` enum value, permission checks, seed data, and API payloads
+  are all unchanged, only what's shown on screen changed. New shared
+  mapping: `frontend/src/lib/roleLabels.ts`'s `ROLE_LABELS`/`roleLabel()`
+  (also gives the other three roles a normal-case label — "Team Lead"
+  instead of the raw `TEAM_LEAD` — so the UI doesn't mix one friendly word
+  in among three ALL-CAPS codes). This is purely a frontend display
+  concern — the CRM Leads module's unrelated "Staff Name" field (a Zoho
+  custom picklist tracking who's working a lead, nothing to do with system
+  roles) was deliberately left untouched.
 
 ## Known gaps / flagged assumptions
 
@@ -754,29 +766,21 @@ that spec's Reports UI still needs, and why it was deliberately deferred):
   being present. Incremental sync alone won't backfill it, since Zoho doesn't
   bump a Lead's `Modified_Time` just because a field was added to the schema.
 - **Role-based visibility scope (CRM Reports page only — does not change any
-  other module's role rules)**: Admin/Manager see the whole page
-  unrestricted; Team Lead sees only their own team; Staff sees only their
-  own reports. Staff is newly able to reach this page at all as of this
-  change (`crmLeadReports.routes.ts` now allows `Role.STAFF`, previously
-  Admin/Manager/Team Lead only) — the nav link (`Layout.tsx`'s
-  `crmReportsNavItem`) is shown to Staff too, unlike the other manager-only
-  report links. "Team" reuses the existing reportingManagerId-based direct-
-  reports rule (`users.service.ts`'s `getDirectReportIds`, the same one
-  Task/Timesheet/Attendance scoping already uses) — not a new convention.
-  The wrinkle: `CrmLead` has no FK to `User` at all, so
-  `getCrmStaffScope()` (`crmLeadReports.service.ts`) resolves the caller's
-  allowed `User` ids to their `name` values and matches against
-  `staffName`/`actorName` as plain strings. This means **a Staff or Team
-  Lead user only sees CRM data if their app account's `name` exactly
-  matches a value in Zoho's Staff Name picklist** (e.g. a user named
-  exactly "Binay") — there's no id-based link, so a typo'd name or an
-  account named differently than the Zoho picklist value silently shows an
-  empty report rather than an error. Every list/detail endpoint fails
-  closed: a scoped requester who guesses a lead id or staff name outside
-  their scope gets 404, not partial or leaked data (verified by hand against
-  the real synced dataset — Staff/Team Lead see exactly their own/their
-  team's leads, Manager/Admin see everything, and direct id/name probing
-  outside scope 404s).
+  other module's role rules)**: **removed 2026-09-16, client direction** —
+  every role now sees everything, unrestricted. `getCrmStaffScope()`
+  (`crmLeadReports.service.ts`) simply returns `null` for every caller now,
+  which is this module's existing "unrestricted" convention throughout
+  (`scopedNameFilter`/`leadRefineWhere`/etc. already treat `null` scope as
+  "don't narrow"), so no other function needed touching — removing the
+  restriction was a one-function change, not a sweep through every query.
+  (Previously: Admin/Manager unrestricted, Team Lead their own team via the
+  same reportingManagerId-based direct-reports rule Task/Timesheet/
+  Attendance scoping uses, Staff themselves only, matched by a fuzzy
+  `User.name` ↔ Zoho Staff Name picklist string join since `CrmLead` has no
+  FK to `User` — verified working correctly before it was removed. Staff's
+  access to this page at all — the nav link and route permission — is
+  unrelated and still stands from an earlier change; only the row-level
+  narrowing within the page was lifted.)
 - `npm run seed:crm-leads-demo` (backend) populates ~40 fake leads/owners/
   activities so this UI has something to show without real Zoho credentials
   — local dev/demo only, mirrors `scripts/dev-db.mjs`'s role. (Removed from

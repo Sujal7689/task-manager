@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../api/client";
 import { onNotificationsChanged } from "../utils/notificationsBus";
+import { roleLabel } from "../lib/roleLabels";
 
 const baseNavItems = [
   { to: "/", label: "Dashboard" },
@@ -86,7 +87,7 @@ export default function Layout() {
               )}
             </NavLink>
             <span className="text-sm text-slate-500">
-              {user?.name} <span className="text-xs text-slate-400">({user?.role})</span>
+              {user?.name} <span className="text-xs text-slate-400">({user?.role ? roleLabel(user.role) : ""})</span>
             </span>
             <button onClick={logout} className="text-sm font-medium text-slate-600 hover:text-red-600 px-2 py-1">
               Log out
