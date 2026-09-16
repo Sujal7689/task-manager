@@ -1,12 +1,19 @@
 import { prisma } from "../../config/prisma";
 import { computeKpiForUser, computeTeamAverageVolume, getEffectiveWeights } from "../kpi/kpi.service";
 
-export type LeaderboardPeriod = "WEEKLY" | "MONTHLY" | "QUARTERLY";
+export type LeaderboardPeriod = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ALL_TIME";
 
 export function getPeriodRange(period: LeaderboardPeriod, reference = new Date()) {
   const to = new Date(reference);
-  const from = new Date(reference);
+  to.setHours(23, 59, 59, 999);
 
+  // No real lower bound for "all time" — Jan 1 1970 predates every possible
+  // task/timesheet record, so this just means "everything ever" without
+  // needing a separate code path through computeKpiForUser/
+  // computeTeamAverageVolume, which only ever care about the range's edges.
+  if (period === "ALL_TIME") return { from: new Date(0), to };
+
+  const from = new Date(reference);
   if (period === "WEEKLY") {
     const day = from.getDay();
     const diff = from.getDate() - day + (day === 0 ? -6 : 1);
@@ -18,7 +25,6 @@ export function getPeriodRange(period: LeaderboardPeriod, reference = new Date()
     from.setMonth(quarterStartMonth, 1);
   }
   from.setHours(0, 0, 0, 0);
-  to.setHours(23, 59, 59, 999);
   return { from, to };
 }
 

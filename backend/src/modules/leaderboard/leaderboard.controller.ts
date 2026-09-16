@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as service from "./leaderboard.service";
 
 const querySchema = z.object({
-  period: z.enum(["WEEKLY", "MONTHLY", "QUARTERLY"]).default("MONTHLY"),
+  period: z.enum(["WEEKLY", "MONTHLY", "QUARTERLY", "ALL_TIME"]).default("MONTHLY"),
   companyId: z.string().optional(),
   departmentId: z.string().optional(),
 });

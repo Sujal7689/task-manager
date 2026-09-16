@@ -172,7 +172,7 @@ backend/
       comments/                  # Task comments + @mention notifications
       dashboard/                  # Role-scoped dashboard summary endpoint
       kpi/                         # KPI weight config
-      leaderboard/                  # Weekly/Monthly/Quarterly leaderboard
+      leaderboard/                  # Weekly/Monthly/Quarterly/All Time leaderboard
       reports/                       # 7 report types (Section 6.8), CSV export
       zoho/                          # OAuth token refresh, polling sync, field mapping
       crmLeads/                      # Zoho Leads sync (Notes/Calls/Events/Tasks/Emails) — reuses zoho/ OAuth
@@ -857,7 +857,7 @@ All endpoints under `/api` except `/api/auth/login` require
 
 **Phase 4 — KPI, leaderboard, reports**
 - `GET/PUT /api/kpi/weights`
-- `GET /api/leaderboard?period=WEEKLY|MONTHLY|QUARTERLY`
+- `GET /api/leaderboard?period=WEEKLY|MONTHLY|QUARTERLY|ALL_TIME` — `ALL_TIME` (added 2026-09-16) spans from the Unix epoch through now (`getPeriodRange` in `leaderboard.service.ts`), rather than a real computed lower bound — simplest way to mean "every completed task ever" without a separate code path through `computeKpiForUser`/`computeTeamAverageVolume`, which only ever care about the range's edges. The same `LeaderboardPeriod` type/helper is shared by the Dashboard's Member KPI widget and the Leadership dashboard, so `ALL_TIME` is accepted there too even though neither surfaces a button for it yet.
 - `GET /api/reports/{task-detail,task-summary,staff-performance,staff-timesheet,overdue,department-rollup,leaderboard-export}` (add `?format=csv` where supported). `staff-performance`/`staff-timesheet`/`staff-task-activity` accept an optional `?userId=` (defaults to the caller's own id); requesting someone else's requires the caller to actually have visibility over them (`getVisibleMemberIds`, same rule as every other team-scoped report) or it 403s — previously unchecked (any authenticated user, including Staff, could read anyone else's KPI/timesheet by id).
 - `GET /api/reports/staff-task-activity?userId=&from=&to=` — the KPI Report's date-range drill-down: exactly the tasks that fed into that person's assigned/completed/overdue/pending counts for the given range (same per-task classification as `getKpiReport`), each with its activity-log entries logged within that range. Backs the click-to-expand row in `KpiReportSection.tsx` — clicking an employee re-fetches this with whatever `from`/`to` the page's own date filter currently has selected.
 - `GET /api/reports/grouped?groupBy=employee|team|project|company|department` (+ `from`/`to`/`companyId`/`departmentId`/`projectId`/`employeeId`/`status`/`format`)

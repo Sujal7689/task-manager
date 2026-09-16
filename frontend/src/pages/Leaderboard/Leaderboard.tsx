@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/client";
 
-type Period = "WEEKLY" | "MONTHLY" | "QUARTERLY";
+type Period = "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ALL_TIME";
 
 interface Entry {
   rank: number;
@@ -17,7 +17,17 @@ interface Entry {
   kpiScore: number;
 }
 
-const periods: Period[] = ["WEEKLY", "MONTHLY", "QUARTERLY"];
+const periods: Period[] = ["WEEKLY", "MONTHLY", "QUARTERLY", "ALL_TIME"];
+
+// Plain-English labels — "ALL_TIME" isn't just a case transform of the raw
+// value like the other three (that would read "All_time"), so every period
+// gets an explicit label instead of computing it.
+const PERIOD_LABELS: Record<Period, string> = {
+  WEEKLY: "Weekly",
+  MONTHLY: "Monthly",
+  QUARTERLY: "Quarterly",
+  ALL_TIME: "All Time",
+};
 
 export default function Leaderboard() {
   const [period, setPeriod] = useState<Period>("MONTHLY");
@@ -38,7 +48,7 @@ export default function Leaderboard() {
               onClick={() => setPeriod(p)}
               className={`text-sm px-3 py-1.5 rounded-full ${period === p ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600"}`}
             >
-              {p.charAt(0) + p.slice(1).toLowerCase()}
+              {PERIOD_LABELS[p]}
             </button>
           ))}
         </div>
