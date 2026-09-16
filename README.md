@@ -280,6 +280,25 @@ decide if/when to revisit them.
     attributed to a user, so they're intentionally not written to the audit
     log (which requires a `changedBy` user) — only interactively-made changes
     are audited.
+    - **Percent-complete collapsed into a per-day summary (2026-09-16)**:
+      the Task progress slider (`TaskDetail.tsx`) fires a `PATCH` per drag
+      tick, and the audit middleware writes one row per update call — a
+      single drag from 20% to 65% used to leave half a dozen near-identical
+      rows behind, drowning out everything else in the log. `listAuditLog`
+      (`auditLog.service.ts`) now collapses every `percentComplete` row for
+      the same Task on the same calendar day into one summary row (that
+      day's earliest `oldValue` → its latest `newValue`, tagged with a
+      `mergedCount` of how many raw updates it stands in for), before
+      pagination is applied — pagination has to happen *after* collapsing,
+      over the full matching set, since a DB-side count/skip/take would
+      otherwise paginate the pre-collapse row count instead of what's
+      actually displayed. The raw per-tick rows are still all written to
+      the database exactly as before (nothing about writing is changed) —
+      only how they're read back and displayed is different. The Field
+      column also shows a plain-English label for this field ("Completion %
+      increased"/"decreased") instead of the raw `percentComplete` name.
+      Every other audited field keeps its original one-row-per-change
+      behavior untouched.
 12. **Task views** — Section 6.2 asks for List/Kanban/Calendar/Hierarchy-tree
     views. List, Kanban (by status), and Calendar (by due date, month grid)
     are built with a view toggle on the Tasks page. A dedicated Hierarchy-tree

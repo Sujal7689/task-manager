@@ -12,6 +12,22 @@ interface AuditEntry {
   newValue: string | null;
   changedAt: string;
   changedBy: { name: string };
+  // Only set when this row stands in for more than one raw percentComplete
+  // update collapsed into one per-day summary — see auditLog.service.ts.
+  mergedCount?: number;
+}
+
+// The Task progress slider fires a PATCH per drag tick, so percentComplete
+// is collapsed server-side into one row per task per day (see
+// auditLog.service.ts's collapsePercentComplete) — this just gives that row
+// a plain-English label ("Completion % increased") instead of the raw field
+// name, so the log reads as a report of what happened, not a diff dump.
+function fieldLabel(e: AuditEntry): string {
+  if (e.fieldChanged !== "percentComplete") return e.fieldChanged;
+  const oldNum = Number(e.oldValue);
+  const newNum = Number(e.newValue);
+  const direction = newNum > oldNum ? "increased" : newNum < oldNum ? "decreased" : "changed";
+  return `Completion % ${direction}`;
 }
 
 export default function AuditLogViewer() {
@@ -58,7 +74,10 @@ export default function AuditLogViewer() {
             {entries.map((e) => (
               <tr key={e.id} className="border-b border-slate-50">
                 <td className="px-4 py-2">{e.entityType} <span className="text-xs text-slate-400">{e.entityId.slice(0, 8)}</span></td>
-                <td className="px-4 py-2">{e.fieldChanged}</td>
+                <td className="px-4 py-2">
+                  {fieldLabel(e)}
+                  {e.mergedCount && <span className="text-xs text-slate-400"> (adjusted {e.mergedCount} times that day)</span>}
+                </td>
                 <td className="px-4 py-2 text-slate-500 max-w-[160px] truncate">{e.oldValue ?? "—"}</td>
                 <td className="px-4 py-2 text-slate-500 max-w-[160px] truncate">{e.newValue ?? "—"}</td>
                 <td className="px-4 py-2">{e.changedBy.name}</td>
