@@ -1,20 +1,22 @@
 # Standalone production compose file — do NOT combine with docker-compose.yml
 # via multiple -f flags: Docker Compose concatenates list fields (ports,
 # volumes) across merged files rather than replacing them, which would leave
-# both nginx and Caddy configs mounted on the same container and Postgres's
-# port published anyway. Run this file by itself instead:
+# two nginx configs mounted on the same container and Postgres's port
+# published anyway. Run this file by itself instead:
 #
 #   docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
 #
-# It's the same services as docker-compose.yml, except: Caddy replaces nginx
-# (free automatic HTTPS via Let's Encrypt — requires DOMAIN in .env with a
-# DNS A record already pointing at this server), and Postgres's port isn't
-# published to the host at all (a cloud box has no reason to expose it).
+# TLS/domain routing is handled by nginx already running on the host, NOT by
+# a container here — this stack only exposes a plain-HTTP proxy on
+# 127.0.0.1:${PROXY_PORT:-8080}, and the host's own nginx reverse-proxies
+# your public domain to that local port (see README for the host nginx
+# server-block example). Postgres's port isn't published to the host at all.
 #
 # backend/frontend are pulled as pre-built images from GHCR (built by CI) —
 # this file never builds from source, so the server only ever needs this
-# file, Caddyfile, and .env. IMAGE_OWNER/IMAGE_TAG come from .image_tag.env,
-# written by the deploy workflow; default to "latest" for manual runs.
+# file, nginx/nginx.conf, and .env. IMAGE_OWNER/IMAGE_TAG come from
+# .image_tag.env, written by the deploy workflow; default to "latest" for
+# manual runs.
 
 services:
   postgres:
@@ -50,18 +52,13 @@ services:
     depends_on:
       - backend
 
-  caddy:
-    image: caddy:2-alpine
+  proxy:
+    image: nginx:alpine
     restart: unless-stopped
-    environment:
-      DOMAIN: ${DOMAIN}
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:${PROXY_PORT:-8080}:80"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - backend
       - frontend
@@ -69,5 +66,3 @@ services:
 volumes:
   pgdata:
   uploads:
-  caddy_data:
-  caddy_config:
