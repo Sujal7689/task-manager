@@ -12,6 +12,23 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      JWT_SECRET: ci-test-secret
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +39,12 @@ jobs:
           cache-dependency-path: backend/package-lock.json
 
       - run: npm ci
+        working-directory: backend
+
+      - run: npx prisma migrate deploy
+        working-directory: backend
+
+      - run: npm run seed
         working-directory: backend
 
       - run: npm test
