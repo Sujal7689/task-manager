@@ -4,12 +4,17 @@
 # both nginx and Caddy configs mounted on the same container and Postgres's
 # port published anyway. Run this file by itself instead:
 #
-#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
 #
 # It's the same services as docker-compose.yml, except: Caddy replaces nginx
 # (free automatic HTTPS via Let's Encrypt — requires DOMAIN in .env with a
 # DNS A record already pointing at this server), and Postgres's port isn't
 # published to the host at all (a cloud box has no reason to expose it).
+#
+# backend/frontend are pulled as pre-built images from GHCR (built by CI) —
+# this file never builds from source, so the server only ever needs this
+# file, Caddyfile, and .env. IMAGE_OWNER/IMAGE_TAG come from .image_tag.env,
+# written by the deploy workflow; default to "latest" for manual runs.
 
 services:
   postgres:
@@ -28,7 +33,7 @@ services:
       retries: 10
 
   backend:
-    build: ./backend
+    image: ghcr.io/${IMAGE_OWNER}/task-manager-backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -40,10 +45,7 @@ services:
       - uploads:/app/uploads
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_URL: ${VITE_API_URL}
+    image: ghcr.io/${IMAGE_OWNER}/task-manager-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend
