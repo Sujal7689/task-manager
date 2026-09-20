@@ -1,0 +1,58 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: >-
+          Git short-SHA tag to roll back to (find it in the Actions history
+          or `git log --oneline`). Leave blank to auto-pick the deploy
+          immediately before the current one, from the server's own history.
+        required: false
+        type: string
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - id: vars
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Roll back production
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          INPUT_TAG: ${{ inputs.image_tag }}
+          IMAGE_OWNER: ${{ steps.vars.outputs.owner }}
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: ${{ secrets.PROD_SSH_PORT || 22 }}
+          envs: INPUT_TAG,IMAGE_OWNER
+          script: |
+            set -e
+            cd /opt/task-manager
+
+            TARGET_TAG="$INPUT_TAG"
+            if [ -z "$TARGET_TAG" ]; then
+              TOTAL=$(wc -l < deploy-history.log 2>/dev/null || echo 0)
+              if [ "$TOTAL" -lt 2 ]; then
+                echo "Not enough deploy history on this server to auto-pick a rollback target (need at least 2 recorded deploys). Pass image_tag explicitly instead." >&2
+                exit 1
+              fi
+              TARGET_TAG=$(tail -n 2 deploy-history.log | head -n 1 | awk '{print $2}')
+            fi
+
+            echo "Rolling back to image tag: $TARGET_TAG"
+            echo "IMAGE_OWNER=$IMAGE_OWNER" > .image_tag.env
+            echo "IMAGE_TAG=$TARGET_TAG" >> .image_tag.env
+            docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
+            docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
+            docker image prune -f
+            echo "$(date -u +%FT%TZ) $TARGET_TAG rollback" >> deploy-history.log
+            tail -n 50 deploy-history.log > deploy-history.log.tmp && mv deploy-history.log.tmp deploy-history.log
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          curl -fsS "https://${{ vars.DOMAIN }}/api/health"

@@ -254,10 +254,32 @@ this config invents — they are **not** Docker container names. nginx runs on
 the host, entirely outside Docker, and only ever talks to
 `127.0.0.1:<port>`.
 
-## 8. Manual redeploy / rollback
+## 8. Redeploy and rollback
 
-**Redeploy the current `latest` images by hand** (bypassing CI, e.g. if
-Actions is down):
+### Automated rollback (preferred)
+
+[.github/workflows/rollback.yml](.github/workflows/rollback.yml) is a
+manually-triggered workflow — no SSH access needed by whoever runs it, and
+no local `git`/`docker` tooling required either.
+
+**To run it:** GitHub repo → **Actions** tab → **Rollback** (left sidebar) →
+**Run workflow**.
+- Leave `image_tag` blank to roll back to whatever was deployed immediately
+  before the current one (it reads this from `deploy-history.log`, which
+  every `deploy` and `rollback` run appends a line to on the server).
+- Or fill in `image_tag` with a specific git short-SHA (from `git log
+  --oneline` or the Actions run history) to jump to an exact build.
+
+It does the same pull/up/prune the normal deploy does, just with the chosen
+tag instead of the newest one, then runs the same smoke test.
+
+Each server only keeps the last 50 lines of `deploy-history.log`, so
+auto-rollback only reaches back that far — beyond that, pass an explicit
+`image_tag`.
+
+### Manual redeploy / rollback (fallback, if Actions itself is unreachable)
+
+**Redeploy the current `latest` images by hand:**
 ```bash
 cd /opt/task-manager
 docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
@@ -273,7 +295,8 @@ echo "IMAGE_TAG=<previous-short-sha>" >> .image_tag.env
 docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
 docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
 ```
-Find previous SHAs from the git log or the Actions run history.
+Find previous SHAs from the git log, the Actions run history, or
+`cat /opt/task-manager/deploy-history.log` on the server.
 
 ## 9. Backup and data migration
 

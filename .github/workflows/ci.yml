@@ -119,6 +119,8 @@ jobs:
             docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
             docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
             docker image prune -f
+            echo "$(date -u +%FT%TZ) ${{ needs.build-and-push.outputs.tag }} deploy" >> deploy-history.log
+            tail -n 50 deploy-history.log > deploy-history.log.tmp && mv deploy-history.log.tmp deploy-history.log
 
       - name: Smoke test
         run: |
