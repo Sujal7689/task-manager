@@ -19,8 +19,8 @@ git push main  →   1. test        (spins up Postgres, runs
                          (VITE_API_URL baked in at build time)
                        tags: ghcr.io/sujal7689/task-manager-{backend,frontend}:<git-sha>
                     3. deploy (SSH)                          →  cd /opt/task-manager
-                                                                 docker compose pull
-                                                                 docker compose up -d
+                                                                 docker compose pull backend frontend
+                                                                 docker compose up -d backend frontend
                        smoke test: curl https://$DOMAIN/api/health
 ```
 
@@ -65,9 +65,13 @@ Only runs on a push to `main` (not on PRs), and only if `test` passed.
 SSHes into the production server as a dedicated `deploy`-style user, and:
 1. Writes `.image_tag.env` with `IMAGE_OWNER` and `IMAGE_TAG` (the SHA just
    built)
-2. `docker compose pull` — fetches the new images from GHCR
-3. `docker compose up -d` — recreates only the containers whose image
-   changed
+2. `docker compose pull backend frontend` — fetches the new images from GHCR
+3. `docker compose up -d backend frontend` — recreates only the containers
+   whose image changed. **Deliberately scoped to just these two services** —
+   `postgres` is never included in a routine deploy's `pull`/`up`, so it's
+   never restarted just because an app deploy happened. (Compose will still
+   start it automatically via `depends_on` if it isn't already running, e.g.
+   on a brand-new server — it just won't be recreated on an existing one.)
 4. `docker image prune -f` — cleans up now-unused old image layers
 5. Runs a smoke test: `curl https://$DOMAIN/api/health`, which must return
    `{"status":"ok"}` ([backend/src/app.ts:37](backend/src/app.ts:37)) or the
@@ -282,8 +286,8 @@ auto-rollback only reaches back that far — beyond that, pass an explicit
 **Redeploy the current `latest` images by hand:**
 ```bash
 cd /opt/task-manager
-docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
-docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
+docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull backend frontend
+docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d backend frontend
 ```
 
 **Roll back to a specific previous build** — since every image is tagged
@@ -292,9 +296,14 @@ with its git SHA (not just `latest`), rollback doesn't require a rebuild:
 cd /opt/task-manager
 echo "IMAGE_OWNER=sujal7689" > .image_tag.env
 echo "IMAGE_TAG=<previous-short-sha>" >> .image_tag.env
-docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
-docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
+docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull backend frontend
+docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d backend frontend
 ```
+
+Both commands are scoped to `backend`/`frontend` only, same as the automated
+workflows — never include `postgres` in a routine pull/up, or a floating
+`postgres:16-alpine` tag update on Docker Hub could cause an unplanned
+restart of your database container.
 Find previous SHAs from the git log, the Actions run history, or
 `cat /opt/task-manager/deploy-history.log` on the server.
 

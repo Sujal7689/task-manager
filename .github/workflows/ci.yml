@@ -116,8 +116,8 @@ jobs:
             cd /opt/task-manager
             echo "IMAGE_OWNER=${{ needs.build-and-push.outputs.owner }}" > .image_tag.env
             echo "IMAGE_TAG=${{ needs.build-and-push.outputs.tag }}" >> .image_tag.env
-            docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull
-            docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d
+            docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml pull backend frontend
+            docker compose --env-file .env --env-file .image_tag.env -f docker-compose.prod.yml up -d backend frontend
             docker image prune -f
             echo "$(date -u +%FT%TZ) ${{ needs.build-and-push.outputs.tag }} deploy" >> deploy-history.log
             tail -n 50 deploy-history.log > deploy-history.log.tmp && mv deploy-history.log.tmp deploy-history.log
