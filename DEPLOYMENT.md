@@ -1,19 +1,24 @@
 # Deployment Guide
 
-How this app gets from a `git push` to running on the production server, and
-how to operate/troubleshoot that pipeline. Read this before touching
-`.github/workflows/ci.yml`, `docker-compose.prod.yml`, or the production
-server's config.
+How this app gets from a manually-triggered GitHub Actions run to running on
+the production server, and how to operate/troubleshoot that pipeline. Read
+this before touching `.github/workflows/ci.yml`, `docker-compose.prod.yml`,
+or the production server's config.
 
 ## 1. Architecture at a glance
 
+The entire pipeline — including tests — is **manual-trigger only**
+(`workflow_dispatch`). Nothing runs automatically on `git push`. To run it:
+GitHub repo → **Actions** tab → **CI/CD** (left sidebar) → **Run workflow**
+→ pick the branch (normally `main`) → **Run workflow**.
+
 ```
-Developer          GitHub Actions                              Prod server (hitech-n8n)
-──────────         ─────────────────────────────────            ──────────────────────────
-git push main  →   1. test        (spins up Postgres, runs
+You (Actions tab)   GitHub Actions                              Prod server (hitech-n8n)
+─────────────────   ─────────────────────────────────            ──────────────────────────
+Run workflow   →   1. test        (spins up Postgres, runs
                                     prisma migrate + seed +
                                     vitest against a real DB)
-                    2. build-and-push
+                    2. build-and-push   (only if branch == main)
                        - docker build ./backend  → push image
                        - docker build ./frontend → push image
                          (VITE_API_URL baked in at build time)
@@ -23,6 +28,12 @@ git push main  →   1. test        (spins up Postgres, runs
                                                                  docker compose up -d backend frontend
                        smoke test: curl https://$DOMAIN/api/health
 ```
+
+This means merging to `main` no longer deploys anything by itself — someone
+has to deliberately trigger the run afterward. This is a conscious choice:
+several issues earlier in this project's setup came from unrelated pushes
+(docs-only commits, another contributor's changes) auto-triggering full
+rebuild-and-deploy cycles.
 
 **Key principle:** the production server never sees this repository's source
 code. It only ever holds `docker-compose.prod.yml` and `.env`, and pulls
@@ -38,7 +49,7 @@ those two local ports.
 ## 2. The three CI/CD jobs ([.github/workflows/ci.yml](.github/workflows/ci.yml))
 
 ### `test`
-Runs on every push and PR to `main`. The backend test suite
+Runs whenever the workflow is manually triggered. The backend test suite
 (`backend/tests/`) is a real integration suite — it hits a live database via
 Prisma, not mocks — so this job spins up a `postgres:16-alpine` **service
 container**, then:
@@ -50,7 +61,8 @@ container**, then:
 If this job fails, nothing downstream runs — no image gets built or deployed.
 
 ### `build-and-push`
-Only runs on a push to `main` (not on PRs), and only if `test` passed.
+Only runs if the workflow was triggered against the `main` branch, and only
+if `test` passed.
 - Computes an image tag from the short git SHA (`git rev-parse --short HEAD`)
 - Logs into `ghcr.io` using the automatic `GITHUB_TOKEN` (no PAT needed here)
 - Builds and pushes both images, each tagged with **both** the git SHA and
