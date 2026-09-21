@@ -25,6 +25,13 @@ export default defineConfig({
         // App shell + API GETs cached network-first so the shell still loads offline;
         // activity log writes are queued client-side (see api/offlineQueue.ts) since
         // Workbox background sync isn't wired to our axios client.
+        //
+        // navigateFallbackDenylist: without this, Workbox's default SPA navigation
+        // fallback intercepts EVERY same-origin navigation -- including a plain
+        // <a target="_blank"> click on a /uploads/... file link -- and serves the
+        // cached index.html shell instead of letting the browser fetch the real
+        // file, since a target="_blank" click is a navigation, not a fetch().
+        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith("/api/"),
