@@ -217,6 +217,27 @@ nginx/nginx.conf
   custom picklist tracking who's working a lead, nothing to do with system
   roles) was deliberately left untouched.
 
+### Attendance — per-employee filter (2026-09-27)
+
+The Team view (`frontend/src/pages/Attendance/Attendance.tsx`) has an
+"Employee" dropdown next to the date range, narrowing the attendance/leave
+tables down to one specific person instead of always listing everyone
+visible. Scoped identically to the Team view itself
+(`getVisibleAttendanceUserIds` in `attendance.service.ts` — Admin sees
+everyone, Manager sees every Staff/Team Lead org-wide + self, everyone else
+sees their direct reports + self): the new `GET /attendance/visible-users`
+endpoint returns exactly that set, so the dropdown never offers a name
+outside what this viewer could already see, and `GET /attendance/team` /
+`GET /attendance/leaves/team` accept an optional `?userId=` that's combined
+with the existing visibility scope via `resolveScopedUserId` rather than
+trusted outright — requesting a `userId` outside the caller's own scope
+(e.g. a Team Lead asking for someone who isn't their direct report) fails
+closed to zero rows instead of leaking whether that person has records,
+the same fail-closed convention `scopedNameFilter` already uses in CRM
+Reports. Verified against real check-in data: Admin's unfiltered/filtered
+counts and a Team Lead's attempt to filter to someone outside their team
+(correctly empty) vs. their own direct report (correctly returned).
+
 ## Known gaps / flagged assumptions
 
 These were called out as I hit them per your instruction to flag rather than

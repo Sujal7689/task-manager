@@ -42,6 +42,30 @@ export async function getVisibleAttendanceUserIds(user: AuthUser): Promise<strin
   return [...(await getDirectReportIds(user.id)), user.id];
 }
 
+// The people the "Employee" filter dropdown on the Team view should offer —
+// exactly who getVisibleAttendanceUserIds already allows this viewer to see,
+// so a Team Lead/Manager never gets offered (or can silently narrow to) a
+// name outside their own scope.
+export async function getVisibleAttendanceUsers(user: AuthUser): Promise<{ id: string; name: string }[]> {
+  const userIds = await getVisibleAttendanceUserIds(user);
+  return prisma.user.findMany({
+    where: { status: "ACTIVE", ...(userIds ? { id: { in: userIds } } : {}) },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+// Combines the "filter to one specific employee" selection with the
+// viewer's own visibility scope — mirrors scopedNameFilter's fail-closed
+// convention used elsewhere in this app (CRM Reports): a requested userId
+// outside what this viewer can see matches nothing rather than silently
+// being ignored (which would otherwise leak whether that user has records).
+function resolveScopedUserId(visibleIds: string[] | undefined, requestedUserId: string | undefined): Prisma.StringFilter | string | undefined {
+  if (!requestedUserId) return visibleIds ? { in: visibleIds } : undefined;
+  if (!visibleIds || visibleIds.includes(requestedUserId)) return requestedUserId;
+  return { in: [] };
+}
+
 async function assertCanManageRecord(targetUserId: string, actingUser: AuthUser, recordDate: Date): Promise<void> {
   if (actingUser.role === Role.ADMIN) return;
   if (actingUser.id === targetUserId) {
@@ -112,10 +136,10 @@ export async function getMyAttendance(userId: string, from: string, to: string) 
   });
 }
 
-export async function getTeamAttendance(user: AuthUser, from: string, to: string) {
+export async function getTeamAttendance(user: AuthUser, from: string, to: string, userId?: string) {
   const userIds = await getVisibleAttendanceUserIds(user);
   const where: Prisma.AttendanceWhereInput = {
-    userId: userIds ? { in: userIds } : undefined,
+    userId: resolveScopedUserId(userIds, userId),
     date: { gte: toDateOnly(from), lte: toDateOnly(to) },
   };
   return prisma.attendance.findMany({
@@ -310,10 +334,10 @@ export async function getMyLeaves(userId: string, from: string, to: string) {
   });
 }
 
-export async function getTeamLeaves(user: AuthUser, from: string, to: string) {
+export async function getTeamLeaves(user: AuthUser, from: string, to: string, userId?: string) {
   const userIds = await getVisibleAttendanceUserIds(user);
   const where: Prisma.LeaveWhereInput = {
-    userId: userIds ? { in: userIds } : undefined,
+    userId: resolveScopedUserId(userIds, userId),
     startDate: { lte: toDateOnly(to) },
     endDate: { gte: toDateOnly(from) },
   };

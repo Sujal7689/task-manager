@@ -69,6 +69,8 @@ export default function Attendance() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [visibleUsers, setVisibleUsers] = useState<UserOption[]>([]);
+  const [employeeFilter, setEmployeeFilter] = useState("");
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [leaveForm, setLeaveForm] = useState(emptyLeaveForm);
   const [showLeaveForOtherForm, setShowLeaveForOtherForm] = useState(false);
@@ -84,17 +86,29 @@ export default function Attendance() {
     if (view === "report") return;
     const attEndpoint = view === "team" ? "/attendance/team" : "/attendance/mine";
     const leaveEndpoint = view === "team" ? "/attendance/leaves/team" : "/attendance/leaves/mine";
-    api.get<AttendanceRecord[]>(attEndpoint, { params: { from, to } }).then((res) => setRecords(res.data));
-    api.get<LeaveRecord[]>(leaveEndpoint, { params: { from, to } }).then((res) => setLeaves(res.data));
+    const userId = view === "team" && employeeFilter ? employeeFilter : undefined;
+    api.get<AttendanceRecord[]>(attEndpoint, { params: { from, to, userId } }).then((res) => setRecords(res.data));
+    api.get<LeaveRecord[]>(leaveEndpoint, { params: { from, to, userId } }).then((res) => setLeaves(res.data));
   }
 
-  useEffect(refresh, [view, from, to]);
+  useEffect(refresh, [view, from, to, employeeFilter]);
 
   useEffect(() => {
     if (isAdmin && view === "team" && users.length === 0) {
       api.get<UserOption[]>("/users").then((res) => setUsers(res.data));
     }
   }, [isAdmin, view]);
+
+  // Who this viewer is allowed to filter the Team view down to — scoped
+  // server-side the same way /attendance/team itself already is (Admin:
+  // everyone, Manager: every Staff/Team Lead + self, Team Lead: direct
+  // reports + self), so the dropdown never offers a name outside what
+  // this viewer could see anyway.
+  useEffect(() => {
+    if (view === "team" && visibleUsers.length === 0) {
+      api.get<UserOption[]>("/attendance/visible-users").then((res) => setVisibleUsers(res.data));
+    }
+  }, [view]);
 
   async function submitLeave(e: FormEvent) {
     e.preventDefault();
@@ -194,10 +208,31 @@ export default function Attendance() {
 
       {view !== "report" && (
         <>
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input" />
         <span className="text-slate-400 text-sm">to</span>
         <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input" />
+        {view === "team" && (
+          <>
+            <span className="w-px h-5 bg-slate-200 mx-1" />
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-slate-500">Employee</span>
+              <select value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)} className="input w-auto">
+                <option value="">All</option>
+                {visibleUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {employeeFilter && (
+              <button onClick={() => setEmployeeFilter("")} className="text-xs text-slate-400 underline hover:text-slate-600">
+                Clear
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto mb-6">

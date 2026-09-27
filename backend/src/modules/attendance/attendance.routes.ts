@@ -11,6 +11,7 @@ router.post("/check-out", asyncHandler(controller.checkOutHandler));
 router.get("/today", asyncHandler(controller.todayHandler));
 router.get("/mine", asyncHandler(controller.myAttendanceHandler));
 router.get("/team", asyncHandler(controller.teamAttendanceHandler));
+router.get("/visible-users", asyncHandler(controller.visibleUsersHandler));
 router.get("/report/monthly", asyncHandler(controller.monthlyReportHandler));
 router.patch("/:id", asyncHandler(controller.updateAttendanceHandler));
 

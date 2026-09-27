@@ -4,7 +4,7 @@ import { LeaveType } from "@prisma/client";
 import * as service from "./attendance.service";
 import { toCsv } from "../../utils/csv";
 
-const rangeSchema = z.object({ from: z.string().min(1), to: z.string().min(1) });
+const rangeSchema = z.object({ from: z.string().min(1), to: z.string().min(1), userId: z.string().optional() });
 const reportSchema = rangeSchema.extend({ format: z.enum(["json", "csv"]).default("json") });
 
 const gpsLocationSchema = z.object({ lat: z.number(), lng: z.number() }).optional();
@@ -40,8 +40,12 @@ export async function myAttendanceHandler(req: Request, res: Response) {
 }
 
 export async function teamAttendanceHandler(req: Request, res: Response) {
-  const { from, to } = rangeSchema.parse(req.query);
-  res.json(await service.getTeamAttendance(req.user!, from, to));
+  const { from, to, userId } = rangeSchema.parse(req.query);
+  res.json(await service.getTeamAttendance(req.user!, from, to, userId));
+}
+
+export async function visibleUsersHandler(req: Request, res: Response) {
+  res.json(await service.getVisibleAttendanceUsers(req.user!));
 }
 
 export async function monthlyReportHandler(req: Request, res: Response) {
@@ -91,6 +95,6 @@ export async function myLeavesHandler(req: Request, res: Response) {
 }
 
 export async function teamLeavesHandler(req: Request, res: Response) {
-  const { from, to } = rangeSchema.parse(req.query);
-  res.json(await service.getTeamLeaves(req.user!, from, to));
+  const { from, to, userId } = rangeSchema.parse(req.query);
+  res.json(await service.getTeamLeaves(req.user!, from, to, userId));
 }
