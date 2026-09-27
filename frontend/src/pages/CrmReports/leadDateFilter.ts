@@ -14,6 +14,7 @@ export const FILTER_PARAM_KEYS = [
   "countryFilter",
   "qualityFilter",
   "assignmentFilter",
+  "stageFilter",
 ] as const;
 
 export function useLeadDateFilter() {
@@ -25,6 +26,7 @@ export function useLeadDateFilter() {
   const countryFilter = searchParams.get("countryFilter") || "";
   const qualityFilter = searchParams.get("qualityFilter") || "";
   const assignmentFilter = searchParams.get("assignmentFilter") || "";
+  const stageFilter = searchParams.get("stageFilter") || "";
   return {
     on,
     date,
@@ -33,12 +35,14 @@ export function useLeadDateFilter() {
     countryFilter,
     qualityFilter,
     assignmentFilter,
+    stageFilter,
     createdSince: on ? date : undefined,
     createdBefore: on && dateTo ? dateTo : undefined,
     staffName: staffFilter || undefined,
     country: countryFilter || undefined,
     leadQuality: qualityFilter || undefined,
     assignment: assignmentFilter || undefined,
+    stage: stageFilter || undefined,
   };
 }
 

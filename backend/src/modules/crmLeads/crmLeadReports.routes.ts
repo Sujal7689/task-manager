@@ -25,6 +25,7 @@ router.get("/daily/leads.csv", asyncHandler(controller.dailyReportLeadsCsvHandle
 router.get("/closure", asyncHandler(controller.closureReportHandler));
 
 router.get("/countries", asyncHandler(controller.countriesHandler));
+router.get("/stages", asyncHandler(controller.stagesHandler));
 
 router.get("/leads", asyncHandler(controller.leadsSelectorHandler));
 router.get("/leads/:id", asyncHandler(controller.leadDetailHandler));

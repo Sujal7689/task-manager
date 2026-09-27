@@ -177,13 +177,13 @@ export default function DailyReportSection() {
   const [fromDate, setFromDate] = useState(nepalDateStr(1));
   const [toDate, setToDate] = useState(nepalDateStr(0));
   const leadLink = useLeadReportLink();
-  const { staffName, country, leadQuality, assignment } = useLeadDateFilter();
+  const { staffName, country, leadQuality, assignment, stage } = useLeadDateFilter();
 
   useEffect(() => {
     api
-      .get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate, country, leadQuality, assignment } })
+      .get<DailyReport>("/crm-lead-reports/daily", { params: { staffName, from: fromDate, to: toDate, country, leadQuality, assignment, stage } })
       .then((res) => setReport(res.data));
-  }, [staffName, fromDate, toDate, country, leadQuality, assignment]);
+  }, [staffName, fromDate, toDate, country, leadQuality, assignment, stage]);
 
   if (!report) return <p className="text-sm text-slate-400 py-12 text-center">Loading...</p>;
 
@@ -255,7 +255,7 @@ export default function DailyReportSection() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-slate-700">Leads assigned per staff</h3>
           <button
-            onClick={() => downloadDailyLeadsCsv({ staffName, from: fromDate, to: toDate, country, leadQuality, assignment })}
+            onClick={() => downloadDailyLeadsCsv({ staffName, from: fromDate, to: toDate, country, leadQuality, assignment, stage })}
             className="text-xs text-slate-500 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50"
           >
             Download CSV

@@ -16,13 +16,13 @@ const FUNNEL_COLORS = [CATEGORICAL.blue, CATEGORICAL.aqua, CATEGORICAL.yellow, C
 
 export default function StageWiseWidget() {
   const [data, setData] = useState<StageWise | null>(null);
-  const { createdSince, createdBefore, staffName, country, leadQuality, assignment } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } = useLeadDateFilter();
 
   useEffect(() => {
     api
-      .get<StageWise>("/crm-lead-reports/dashboard/stage-wise", { params: { createdSince, createdBefore, staffName, country, leadQuality, assignment } })
+      .get<StageWise>("/crm-lead-reports/dashboard/stage-wise", { params: { createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } })
       .then((res) => setData(res.data));
-  }, [createdSince, createdBefore, staffName, country, leadQuality, assignment]);
+  }, [createdSince, createdBefore, staffName, country, leadQuality, assignment, stage]);
 
   if (!data) return null;
 

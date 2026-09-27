@@ -20,13 +20,15 @@ const QUALITY_OPTIONS = [
 // date range (`showDateRange={false}` hides just that half of the bar).
 export default function LeadDateFilterBar({ showDateRange = true }: { showDateRange?: boolean }) {
   const [, setSearchParams] = useSearchParams();
-  const { on, date, dateTo, staffFilter, countryFilter, qualityFilter, assignmentFilter } = useLeadDateFilter();
+  const { on, date, dateTo, staffFilter, countryFilter, qualityFilter, assignmentFilter, stageFilter } = useLeadDateFilter();
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
+  const [stageOptions, setStageOptions] = useState<string[]>([]);
 
   useEffect(() => {
     api.get<StaffOption[]>("/crm-lead-reports/staff").then((res) => setStaffOptions(res.data.map((s) => s.staffName).sort()));
     api.get<string[]>("/crm-lead-reports/countries").then((res) => setCountryOptions(res.data));
+    api.get<string[]>("/crm-lead-reports/stages").then((res) => setStageOptions(res.data));
   }, []);
 
   function updateDateRange(next: { on?: boolean; date?: string; dateTo?: string }) {
@@ -44,7 +46,7 @@ export default function LeadDateFilterBar({ showDateRange = true }: { showDateRa
   // Shared setter for the simple "select a value or clear it" filters
   // (staff/country/quality/assignment) — each just sets or deletes its own
   // URL param.
-  function setParam(key: "staffFilter" | "countryFilter" | "qualityFilter" | "assignmentFilter", value: string) {
+  function setParam(key: "staffFilter" | "countryFilter" | "qualityFilter" | "assignmentFilter" | "stageFilter", value: string) {
     setSearchParams((prev) => {
       const params = new URLSearchParams(prev);
       if (value) params.set(key, value);
@@ -152,6 +154,22 @@ export default function LeadDateFilterBar({ showDateRange = true }: { showDateRa
       {assignmentFilter && (
         <button onClick={() => setParam("assignmentFilter", "")} className="text-xs text-slate-400 underline hover:text-slate-600">
           Clear assignment
+        </button>
+      )}
+      <label className="flex items-center gap-2">
+        <span className="text-slate-600">Stage</span>
+        <select value={stageFilter} onChange={(e) => setParam("stageFilter", e.target.value)} className="input w-auto py-1">
+          <option value="">All stages</option>
+          {stageOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </label>
+      {stageFilter && (
+        <button onClick={() => setParam("stageFilter", "")} className="text-xs text-slate-400 underline hover:text-slate-600">
+          Clear stage
         </button>
       )}
     </div>

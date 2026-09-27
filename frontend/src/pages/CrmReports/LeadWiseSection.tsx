@@ -81,21 +81,21 @@ export default function LeadWiseSection() {
   const [kanbanColumns, setKanbanColumns] = useState<KanbanColumnData[]>([]);
   const [detail, setDetail] = useState<LeadDetail | null>(null);
   const [activityType, setActivityType] = useState("");
-  const { createdSince, createdBefore, staffName, country, leadQuality, assignment } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } = useLeadDateFilter();
 
   useEffect(() => {
     if (view !== "list") return;
     api
-      .get<LeadOption[]>("/crm-lead-reports/leads", { params: { search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality, assignment } })
+      .get<LeadOption[]>("/crm-lead-reports/leads", { params: { search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } })
       .then((res) => setOptions(res.data));
-  }, [view, search, createdSince, createdBefore, staffName, country, leadQuality, assignment]);
+  }, [view, search, createdSince, createdBefore, staffName, country, leadQuality, assignment, stage]);
 
   useEffect(() => {
     if (view !== "kanban") return;
     api
-      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality, assignment } })
+      .get<KanbanColumnData[]>("/crm-lead-reports/kanban", { params: { search: search || undefined, createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } })
       .then((res) => setKanbanColumns(res.data));
-  }, [view, search, createdSince, createdBefore, staffName, country, leadQuality, assignment]);
+  }, [view, search, createdSince, createdBefore, staffName, country, leadQuality, assignment, stage]);
 
   useEffect(() => {
     if (!leadId) {

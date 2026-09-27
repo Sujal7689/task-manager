@@ -123,17 +123,25 @@ export interface ReportFilters {
   // "assigned" | "unassigned" | undefined (any other value ignored) — see
   // resolveStaffNameWhere for how this combines with staffName/scope.
   assignment?: string;
+  // The lead's raw leadStatus value (Pre-Qualified, Qualified, ...) — see
+  // leadRefineWhere.
+  stage?: string;
 }
 
 function isLeadQuality(value: string | undefined): value is CrmLeadQuality {
   return value === "POTENTIAL_DEAL" || value === "NURTURING" || value === "UNQUALIFIED";
 }
 
-// Shared country/quality narrowing, applied everywhere staffName already is.
-function leadRefineWhere(country?: string, leadQuality?: string): Prisma.CrmLeadWhereInput {
+// Shared country/quality/stage narrowing, applied everywhere staffName
+// already is. `stage` is the lead's raw `leadStatus` picklist value
+// (Pre-Qualified, Qualified, Meeting Scheduled, ...) — the same field
+// already shown as "Stage" on the Lead-wise detail panel — not the derived
+// `funnelStage` bucket the Stage-wise funnel chart uses.
+function leadRefineWhere(country?: string, leadQuality?: string, stage?: string): Prisma.CrmLeadWhereInput {
   return {
     ...(country ? { country } : {}),
     ...(isLeadQuality(leadQuality) ? { leadQuality } : {}),
+    ...(stage ? { leadStatus: stage } : {}),
   };
 }
 
@@ -164,7 +172,7 @@ export async function getAssignmentOverview(params: AssignmentOverviewParams) {
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
     ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
-    ...leadRefineWhere(params.country, params.leadQuality),
+    ...leadRefineWhere(params.country, params.leadQuality, params.stage),
     ...(params.search
       ? {
           OR: [
@@ -223,7 +231,7 @@ export async function getLeadsGroupedByStaff(filters: ReportFilters = {}) {
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
     ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
-    ...leadRefineWhere(filters.country, filters.leadQuality),
+    ...leadRefineWhere(filters.country, filters.leadQuality, filters.stage),
   };
   const leads = await prisma.crmLead.findMany({
     where,
@@ -276,7 +284,7 @@ export async function getActivityFeed(params: { page?: number; pageSize?: number
   const assignmentWhere = resolveStaffNameWhere(undefined, params.assignment);
   const leadFilter: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...leadRefineWhere(params.country, params.leadQuality),
+    ...leadRefineWhere(params.country, params.leadQuality, params.stage),
     ...(assignmentWhere !== undefined ? { staffName: assignmentWhere } : {}),
   };
   const where: Prisma.CrmLeadActivityWhereInput = {
@@ -320,7 +328,7 @@ interface PeriodCount {
 }
 
 export async function getConversionRate(granularity: "day" | "month", filters: ReportFilters = {}) {
-  const { createdSince, createdBefore, staffName, scope, country, leadQuality, assignment } = filters;
+  const { createdSince, createdBefore, staffName, scope, country, leadQuality, assignment, stage } = filters;
   const rollingWindowStart = granularity === "day" ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
   // The rolling window and the client's cutoff both narrow the range — use
   // whichever is later, so turning the cutoff on never re-includes data the
@@ -333,8 +341,9 @@ export async function getConversionRate(granularity: "day" | "month", filters: R
   const countryFragment = country ? Prisma.sql` AND "country" = ${country}` : Prisma.empty;
   const qualityFragment = isLeadQuality(leadQuality) ? Prisma.sql` AND "lead_quality" = ${leadQuality}::"CrmLeadQuality"` : Prisma.empty;
   const assignmentFragment = assignmentSqlFragment(assignment);
-  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}${assignmentFragment}`;
-  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}${assignmentFragment}`;
+  const stageFragment = stage ? Prisma.sql` AND "lead_status" = ${stage}` : Prisma.empty;
+  const extraCreated = Prisma.sql`${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}${assignmentFragment}${stageFragment}`;
+  const extraConverted = Prisma.sql`${createdSince ? Prisma.sql` AND "zoho_created_time" >= ${createdSince}` : Prisma.empty}${createdBefore ? Prisma.sql` AND "zoho_created_time" < ${createdBefore}` : Prisma.empty}${staffFragment}${countryFragment}${qualityFragment}${assignmentFragment}${stageFragment}`;
 
   const [created, converted] =
     granularity === "day"
@@ -374,7 +383,7 @@ export async function getStageWise(filters: ReportFilters = {}) {
   const leadWhere: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
     ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
-    ...leadRefineWhere(filters.country, filters.leadQuality),
+    ...leadRefineWhere(filters.country, filters.leadQuality, filters.stage),
   };
   const counts = await prisma.crmLead.groupBy({ by: ["funnelStage"], where: leadWhere, _count: { _all: true } });
   const countFor = (stage: string) => counts.find((c) => c.funnelStage === stage)?._count._all ?? 0;
@@ -408,7 +417,7 @@ export async function getKanbanBoard(params: { search?: string } & ReportFilters
   const where: Prisma.CrmLeadWhereInput = {
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
     ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
-    ...leadRefineWhere(params.country, params.leadQuality),
+    ...leadRefineWhere(params.country, params.leadQuality, params.stage),
     ...(params.search
       ? { OR: [{ fullName: { contains: params.search, mode: "insensitive" } }, { company: { contains: params.search, mode: "insensitive" } }] }
       : {}),
@@ -439,7 +448,7 @@ export async function listLeadsForSelector(search: string | undefined, filters: 
     where: {
       ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
       ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}),
-      ...leadRefineWhere(filters.country, filters.leadQuality),
+      ...leadRefineWhere(filters.country, filters.leadQuality, filters.stage),
       ...(search ? { OR: [{ fullName: { contains: search, mode: "insensitive" } }, { company: { contains: search, mode: "insensitive" } }] } : {}),
     },
     select: { id: true, fullName: true, company: true, funnelStage: true, staffName: true, country: true, leadQuality: true },
@@ -581,6 +590,19 @@ export async function getDistinctCountries(scope?: string[] | null): Promise<str
   return rows.map((r) => r.country as string);
 }
 
+// Distinct, non-null leadStatus ("Stage") values across leads the requester
+// can see — populates the shared Stage filter dropdown, same pattern as
+// getDistinctCountries above.
+export async function getDistinctStages(scope?: string[] | null): Promise<string[]> {
+  const rows = await prisma.crmLead.findMany({
+    where: { leadStatus: { not: null }, ...(scope ? { staffName: { in: scope } } : {}) },
+    select: { leadStatus: true },
+    distinct: ["leadStatus"],
+    orderBy: { leadStatus: "asc" },
+  });
+  return rows.map((r) => r.leadStatus as string);
+}
+
 // -------------------- Staff-wise report --------------------
 // Keyed by `staffName` — the client's "Staff Name" custom field on the Lead
 // (Zoho API name `Staff_Name`), not the standard `Owner` field. Client
@@ -598,7 +620,7 @@ export interface StaffOverviewRow {
 export async function listStaffOverview(filters: ReportFilters = {}): Promise<StaffOverviewRow[]> {
   const dateRange = leadDateRange(filters.createdSince, filters.createdBefore);
   const staffCond = scopedNameFilter(filters.staffName, filters.scope);
-  const refine = leadRefineWhere(filters.country, filters.leadQuality);
+  const refine = leadRefineWhere(filters.country, filters.leadQuality, filters.stage);
   // This view is inherently "per staff member" — it defaults to excluding
   // unassigned leads (nothing to group them under) unless the caller
   // explicitly asks for `assignment=unassigned`, in which case it correctly
@@ -667,7 +689,7 @@ export async function getStaffDetail(staffName: string, filters: ReportFilters =
   const leadWhere: Prisma.CrmLeadWhereInput = {
     staffName,
     ...(dateRange ? { zohoCreatedTime: dateRange } : {}),
-    ...leadRefineWhere(filters.country, filters.leadQuality),
+    ...leadRefineWhere(filters.country, filters.leadQuality, filters.stage),
   };
   const [leads, activitiesLogged] = await Promise.all([
     prisma.crmLead.findMany({
@@ -965,6 +987,7 @@ export async function getDailyReport(
   country?: string,
   leadQuality?: string,
   assignment?: string,
+  stage?: string,
 ) {
   // `from`/`to` each resolve to a full Nepal-local day, then the range spans
   // from the start of `from`'s day to the END of `to`'s day (inclusive of
@@ -975,7 +998,7 @@ export async function getDailyReport(
   const leadSelect = { select: { fullName: true, company: true, staffName: true } } as const;
   const nameCond = scopedNameFilter(staffName, scope);
   const staffNameWhere = resolveStaffNameWhere(nameCond, assignment);
-  const refine = leadRefineWhere(country, leadQuality);
+  const refine = leadRefineWhere(country, leadQuality, stage);
   const leadStaffFilter =
     staffNameWhere !== undefined || Object.keys(refine).length > 0
       ? { lead: { ...(staffNameWhere !== undefined ? { staffName: staffNameWhere } : {}), ...refine } }
@@ -1126,6 +1149,7 @@ export async function getClosureReport(
   country?: string,
   leadQuality?: string,
   assignment?: string,
+  stage?: string,
 ) {
   const { start, end } = kathmanduPeriodBounds(period);
   const nameCond = scopedNameFilter(staffName, scope);
@@ -1135,7 +1159,7 @@ export async function getClosureReport(
   const staffNameWhere = assignment !== undefined ? resolveStaffNameWhere(nameCond, assignment) : (nameCond ?? { not: null });
   const leadStaffWhere: Prisma.CrmLeadWhereInput = {
     staffName: staffNameWhere,
-    ...leadRefineWhere(country, leadQuality),
+    ...leadRefineWhere(country, leadQuality, stage),
   };
 
   const [completedTasks, completedCalls, dealAgg] = await Promise.all([

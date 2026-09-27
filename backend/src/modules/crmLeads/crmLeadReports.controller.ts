@@ -46,6 +46,7 @@ async function parseFilters(req: Request): Promise<ReportFilters> {
     country: parseStringParam(req.query.country),
     leadQuality: parseStringParam(req.query.leadQuality),
     assignment: parseStringParam(req.query.assignment),
+    stage: parseStringParam(req.query.stage),
     scope: await getScope(req),
   };
 }
@@ -78,7 +79,8 @@ export async function dailyReportHandler(req: Request, res: Response) {
   const country = parseStringParam(req.query.country);
   const leadQuality = parseStringParam(req.query.leadQuality);
   const assignment = parseStringParam(req.query.assignment);
-  res.json(await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality, assignment));
+  const stage = parseStringParam(req.query.stage);
+  res.json(await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality, assignment, stage));
 }
 
 const LEAD_QUALITY_LABEL: Record<string, string> = {
@@ -94,7 +96,8 @@ export async function dailyReportLeadsCsvHandler(req: Request, res: Response) {
   const country = parseStringParam(req.query.country);
   const leadQuality = parseStringParam(req.query.leadQuality);
   const assignment = parseStringParam(req.query.assignment);
-  const report = await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality, assignment);
+  const stage = parseStringParam(req.query.stage);
+  const report = await service.getDailyReport(staffName, await getScope(req), fromDate, toDate, country, leadQuality, assignment, stage);
 
   const rows = report.leads.items.map((l) => ({
     Lead: l.leadName,
@@ -125,7 +128,8 @@ export async function closureReportHandler(req: Request, res: Response) {
   const country = parseStringParam(req.query.country);
   const leadQuality = parseStringParam(req.query.leadQuality);
   const assignment = parseStringParam(req.query.assignment);
-  res.json(await service.getClosureReport(period, staffName, await getScope(req), country, leadQuality, assignment));
+  const stage = parseStringParam(req.query.stage);
+  res.json(await service.getClosureReport(period, staffName, await getScope(req), country, leadQuality, assignment, stage));
 }
 
 export async function groupedByStaffHandler(req: Request, res: Response) {
@@ -179,6 +183,10 @@ export async function staffDetailHandler(req: Request, res: Response) {
 
 export async function countriesHandler(req: Request, res: Response) {
   res.json(await service.getDistinctCountries(await getScope(req)));
+}
+
+export async function stagesHandler(req: Request, res: Response) {
+  res.json(await service.getDistinctStages(await getScope(req)));
 }
 
 export async function updateLeadQualityHandler(req: Request, res: Response) {

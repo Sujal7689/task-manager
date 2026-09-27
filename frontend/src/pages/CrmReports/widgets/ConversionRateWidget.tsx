@@ -14,13 +14,13 @@ interface Point {
 export default function ConversionRateWidget() {
   const [granularity, setGranularity] = useState<"day" | "month">("day");
   const [data, setData] = useState<Point[]>([]);
-  const { createdSince, createdBefore, staffName, country, leadQuality, assignment } = useLeadDateFilter();
+  const { createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } = useLeadDateFilter();
 
   useEffect(() => {
     api
-      .get<Point[]>("/crm-lead-reports/dashboard/conversion-rate", { params: { granularity, createdSince, createdBefore, staffName, country, leadQuality, assignment } })
+      .get<Point[]>("/crm-lead-reports/dashboard/conversion-rate", { params: { granularity, createdSince, createdBefore, staffName, country, leadQuality, assignment, stage } })
       .then((res) => setData(res.data));
-  }, [granularity, createdSince, createdBefore, staffName, country, leadQuality, assignment]);
+  }, [granularity, createdSince, createdBefore, staffName, country, leadQuality, assignment, stage]);
 
   const formatted = data.map((d) => ({
     ...d,
