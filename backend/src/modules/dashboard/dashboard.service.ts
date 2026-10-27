@@ -168,7 +168,8 @@ export async function getMilestoneTracking(user: AuthUser) {
   const projects = await getVisibleProjects(user);
   const projectIds = projects.map((p) => p.id);
   const milestones = await prisma.milestone.findMany({
-    where: { projectId: { in: projectIds } },
+    // Client-project stages have no tasks or target dates, so they'd only add 0% noise here.
+    where: { projectId: { in: projectIds }, project: { type: "GENERAL" } },
     include: {
       project: { select: { name: true, startDate: true } },
       tasks: { where: topLevelTaskFilter, select: { percentComplete: true } },

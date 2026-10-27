@@ -17,6 +17,7 @@ const createSchema = z.object({
   overrideReason: z.string().optional(),
   description: z.string().optional(),
   projectId: z.string().optional(),
+  milestoneId: z.string().optional(),
   departmentId: z.string().optional(),
 });
 

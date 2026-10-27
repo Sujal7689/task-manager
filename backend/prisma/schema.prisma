@@ -99,6 +99,7 @@ model User {
 
   projectsOwned         Project[]  @relation("ProjectOwner")
   milestonesOwned       Milestone[] @relation("MilestoneOwner")
+  milestonesCompleted   Milestone[] @relation("MilestoneCompletedBy")
   tasksAssignedBy       Task[]     @relation("TaskAssignedBy")
   taskAssignments       TaskAssignee[]
   activityLogs          ActivityLog[]  @relation("ActivityLoggedBy")
@@ -136,6 +137,15 @@ enum ProjectStatus {
   ACTIVE
   ON_HOLD
   COMPLETED
+  LOST // Client projects only: the deal didn't go through.
+}
+
+// GENERAL = the original free-form project (milestones -> tasks).
+// CLIENT = one project per client; fixed deal stages (milestones) that hold
+// activity logs instead of tasks.
+enum ProjectType {
+  GENERAL
+  CLIENT
 }
 
 model Project {
@@ -150,6 +160,7 @@ model Project {
   ownerId      String        @map("owner_id")
   owner        User          @relation("ProjectOwner", fields: [ownerId], references: [id])
   status       ProjectStatus @default(PLANNING)
+  type         ProjectType   @default(GENERAL)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -178,11 +189,18 @@ model Milestone {
   ownerId    String          @map("owner_id")
   owner      User            @relation("MilestoneOwner", fields: [ownerId], references: [id])
   status     MilestoneStatus @default(NOT_STARTED)
+  // Client-project stages only: position in the fixed deal flow, and who
+  // marked the stage complete.
+  sortOrder     Int?      @map("sort_order")
+  completedAt   DateTime? @map("completed_at")
+  completedById String?   @map("completed_by_id")
+  completedBy   User?     @relation("MilestoneCompletedBy", fields: [completedById], references: [id])
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
   tasks      Task[]
   notifications NotificationLog[]
+  dailyActivities DailyActivity[]
 
   @@map("milestones")
 }
@@ -408,6 +426,9 @@ model DailyActivity {
 
   projectId        String?           @map("project_id")
   project          Project?          @relation(fields: [projectId], references: [id])
+  // Set when the activity is logged against a client-project stage.
+  milestoneId      String?           @map("milestone_id")
+  milestone        Milestone?        @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   departmentId     String?           @map("department_id")
   department       Department?       @relation(fields: [departmentId], references: [id])
 
@@ -420,6 +441,7 @@ model DailyActivity {
 
   @@index([loggedById])
   @@index([activityDate])
+  @@index([milestoneId])
   @@map("daily_activities")
 }
 

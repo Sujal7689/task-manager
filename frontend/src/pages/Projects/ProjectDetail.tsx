@@ -4,13 +4,14 @@ import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { Company, Department, Milestone, MilestoneStatus, Project, ProjectStatus, Task, User } from "../../types";
+import ClientProjectView, { ClientStage } from "./ClientProjectView";
 
 function errorMessage(err: unknown, fallback: string): string {
   const axiosErr = err as { response?: { data?: { error?: string } } };
   return axiosErr.response?.data?.error ?? fallback;
 }
 
-const projectStatuses: ProjectStatus[] = ["PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED"];
+const projectStatuses: ProjectStatus[] = ["PLANNING", "ACTIVE", "ON_HOLD", "COMPLETED", "LOST"];
 const milestoneStatuses: MilestoneStatus[] = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "DELAYED"];
 
 export default function ProjectDetail() {
@@ -18,7 +19,7 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [project, setProject] = useState<(Project & { milestones: Milestone[]; tasks: Task[] }) | null>(null);
+  const [project, setProject] = useState<(Omit<Project, "milestones"> & { milestones: ClientStage[]; tasks: Task[] }) | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -184,7 +185,9 @@ export default function ProjectDetail() {
       <div className="flex items-start justify-between mt-2 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{project.name}</h1>
-          <p className="text-sm text-slate-500">Status: {project.status} · Owner: {project.owner?.name}</p>
+          <p className="text-sm text-slate-500">
+            {project.type === "CLIENT" ? "Client project · " : ""}Status: {project.status} · Owner: {project.owner?.name}
+          </p>
         </div>
         <div className="flex gap-2 shrink-0 ml-4">
           {canEditOrDelete && (
@@ -200,12 +203,12 @@ export default function ProjectDetail() {
               Delete
             </button>
           )}
-          <Link
+          {project.type !== "CLIENT" && <Link
             to={`/tasks/new?projectId=${project.id}`}
             className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800"
           >
             New Task
-          </Link>
+          </Link>}
         </div>
       </div>
 
@@ -282,6 +285,10 @@ export default function ProjectDetail() {
         </form>
       )}
 
+      {project.type === "CLIENT" ? (
+        <ClientProjectView project={project} stages={project.milestones} onChange={refresh} />
+      ) : (
+      <>
       <div className="flex items-center justify-between mb-3">
         <h2 className="font-medium text-slate-900">Milestones</h2>
         {canCreateMilestone && (
@@ -410,6 +417,8 @@ export default function ProjectDetail() {
             ))}
           </ul>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -238,6 +238,15 @@ Reports. Verified against real check-in data: Admin's unfiltered/filtered
 counts and a Team Lead's attempt to filter to someone outside their team
 (correctly empty) vs. their own direct report (correctly returned).
 
+### Project types: General and Client (2026-10-15)
+
+- Every project now has a `type`. **General** is the original model (milestones → tasks) and every pre-existing project was migrated to it with no behaviour change.
+- **Client** is one project per client. On creation it gets the 12 fixed deal stages as milestones (`CLIENT_STAGES` in `projects.service.ts`, ordered by `sortOrder`): New Sourcing Request, Quotation, Approval, Advance Payment, Production (Process), Production (Done), QC, Shipping, Documentation, Final Payment, Delivery, Feedback. Stages hold **activity logs** (the existing `DailyActivity` model, via a new nullable `milestoneId`), not tasks, so they keep all fields, attachments and timesheet hours.
+- Project page for a Client project (`ClientProjectView.tsx`): stage stepper with progress, a Documents tracker listing every attachment grouped by stage, and the selected stage's (or all stages') activity logs with a "+ Log activity" form (shared `components/ActivityForm.tsx`, also used by the Activities page).
+- `POST /api/milestones/:id/complete {completed}`: anyone can mark a stage complete (records `completedBy`/`completedAt`); only the project owner or an Admin can reopen it. Stages aren't forced to complete in order.
+- `POST /api/projects/:id/lost-deal {lost}`: project owner or Admin flips status to the new `LOST` (or back to `ACTIVE`).
+- Type is fixed at creation (ignored on PATCH). Client stages are excluded from the Dashboard milestone-tracking widget.
+
 ## Known gaps / flagged assumptions
 
 These were called out as I hit them per your instruction to flag rather than

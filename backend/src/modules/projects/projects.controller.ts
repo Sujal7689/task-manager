@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
-import { ProjectStatus } from "@prisma/client";
+import { ProjectStatus, ProjectType } from "@prisma/client";
 import * as service from "./projects.service";
 import { parsePagination, parseSearch, toPaginated } from "../../utils/pagination";
 import { runWithUser } from "../../utils/requestContext";
@@ -13,6 +13,7 @@ const createSchema = z.object({
   endDate: z.string().optional(),
   ownerId: z.string().min(1),
   status: z.nativeEnum(ProjectStatus).optional(),
+  type: z.nativeEnum(ProjectType).optional(),
 });
 const updateSchema = createSchema.partial();
 
@@ -39,4 +40,8 @@ export async function updateHandler(req: Request, res: Response) {
 export async function deleteHandler(req: Request, res: Response) {
   await runWithUser(req.user!.id, () => service.deleteProject(req.params.id));
   res.status(204).send();
+}
+export async function lostDealHandler(req: Request, res: Response) {
+  const { lost } = z.object({ lost: z.boolean() }).parse(req.body);
+  res.json(await runWithUser(req.user!.id, () => service.setLostDeal(req.params.id, lost, req.user!)));
 }

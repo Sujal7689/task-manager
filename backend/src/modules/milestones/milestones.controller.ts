@@ -33,3 +33,7 @@ export async function deleteHandler(req: Request, res: Response) {
   await runWithUser(req.user!.id, () => service.deleteMilestone(req.params.id));
   res.status(204).send();
 }
+export async function stageCompleteHandler(req: Request, res: Response) {
+  const { completed } = z.object({ completed: z.boolean() }).parse(req.body);
+  res.json(await runWithUser(req.user!.id, () => service.setStageCompleted(req.params.id, completed, req.user!)));
+}

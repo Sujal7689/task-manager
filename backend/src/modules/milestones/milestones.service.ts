@@ -59,3 +59,20 @@ export async function getMilestoneProgress(id: string): Promise<number> {
   const total = tasks.reduce((sum, t) => sum + t.percentComplete, 0);
   return Math.round(total / tasks.length);
 }
+
+// Client-project stages: any signed-in user can mark a stage complete; only
+// the project owner or an Admin can reopen one (undo a mistaken completion).
+export async function setStageCompleted(id: string, completed: boolean, user: { id: string; role: string }) {
+  const milestone = await prisma.milestone.findUnique({ where: { id }, include: { project: { select: { type: true, ownerId: true } } } });
+  if (!milestone) throw new AppError(404, "Milestone not found");
+  if (milestone.project.type !== "CLIENT") throw new AppError(400, "Only client-project stages can be completed this way");
+  if (!completed && user.role !== "ADMIN" && user.id !== milestone.project.ownerId) {
+    throw new AppError(403, "Only the project owner or an Admin can reopen a stage");
+  }
+  return prisma.milestone.update({
+    where: { id },
+    data: completed
+      ? { status: MilestoneStatus.COMPLETED, completedAt: new Date(), completedById: user.id }
+      : { status: MilestoneStatus.NOT_STARTED, completedAt: null, completedById: null },
+  });
+}

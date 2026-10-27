@@ -22,6 +22,7 @@ export interface CreateDailyActivityInput {
   overrideReason?: string; // optional even for a manual override
   description?: string;
   projectId?: string;
+  milestoneId?: string; // client-project stage; its project wins over projectId
   departmentId?: string;
 }
 
@@ -38,6 +39,18 @@ function computeWorkingHours(input: CreateDailyActivityInput): number {
   return Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100;
 }
 
+// Validates project/stage refs. A stage pins the activity to that stage's project.
+async function resolveProjectAndStage(input: CreateDailyActivityInput) {
+  if (input.milestoneId) {
+    const milestone = await prisma.milestone.findUnique({ where: { id: input.milestoneId }, select: { projectId: true } });
+    if (!milestone) throw new AppError(400, "Stage not found");
+    input.projectId = milestone.projectId;
+  } else if (input.projectId) {
+    const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
+    if (!project) throw new AppError(400, "Project not found");
+  }
+}
+
 function startOfDay(dateStr: string): Date {
   const d = new Date(dateStr);
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -46,6 +59,7 @@ function startOfDay(dateStr: string): Date {
 const dailyActivityInclude = {
   loggedBy: { select: { id: true, name: true } },
   project: { select: { id: true, name: true } },
+  milestone: { select: { id: true, name: true } },
   department: { select: { id: true, name: true } },
   attachments: true,
 } satisfies Prisma.DailyActivityInclude;
@@ -73,10 +87,7 @@ async function adjustActivityTimesheetEntry(userId: string, date: Date, deltaHou
 }
 
 export async function createDailyActivity(input: CreateDailyActivityInput, loggedById: string) {
-  if (input.projectId) {
-    const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
-    if (!project) throw new AppError(400, "Project not found");
-  }
+  await resolveProjectAndStage(input);
   if (input.departmentId) {
     const department = await prisma.department.findUnique({ where: { id: input.departmentId }, select: { id: true } });
     if (!department) throw new AppError(400, "Department not found");
@@ -97,6 +108,7 @@ export async function createDailyActivity(input: CreateDailyActivityInput, logge
       overrideReason: input.overrideReason,
       description: input.description,
       projectId: input.projectId,
+      milestoneId: input.milestoneId,
       departmentId: input.departmentId,
       loggedById,
     },
@@ -116,10 +128,7 @@ export async function updateDailyActivity(id: string, input: CreateDailyActivity
   const existing = await prisma.dailyActivity.findUnique({ where: { id } });
   if (!existing) throw new AppError(404, "Activity not found");
 
-  if (input.projectId) {
-    const project = await prisma.project.findUnique({ where: { id: input.projectId }, select: { id: true } });
-    if (!project) throw new AppError(400, "Project not found");
-  }
+  await resolveProjectAndStage(input);
   if (input.departmentId) {
     const department = await prisma.department.findUnique({ where: { id: input.departmentId }, select: { id: true } });
     if (!department) throw new AppError(400, "Department not found");
@@ -141,6 +150,7 @@ export async function updateDailyActivity(id: string, input: CreateDailyActivity
       overrideReason: input.overrideReason ?? null,
       description: input.description ?? null,
       projectId: input.projectId ?? null,
+      milestoneId: input.milestoneId ?? null,
       departmentId: input.departmentId ?? null,
     },
     include: dailyActivityInclude,

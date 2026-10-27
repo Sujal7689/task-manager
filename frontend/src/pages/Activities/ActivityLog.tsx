@@ -1,67 +1,16 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, apiBaseUrl } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { Department, Project } from "../../types";
 import Pagination from "../../components/Pagination";
 import ActivityDetailModal from "../../components/ActivityDetailModal";
+import ActivityForm, { ActivityEntry } from "../../components/ActivityForm";
 
-type ActivityType = "UPDATE" | "CALL" | "MEETING" | "FOLLOW_UP" | "DOCUMENT" | "OTHER";
-type ActivityStatus = "IN_PROGRESS" | "BLOCKED" | "COMPLETED";
-
-interface Attachment {
-  id: string;
-  fileName: string;
-  filePath: string;
-  fileSize: number;
-}
-
-interface ActivityEntry {
-  id: string;
-  name: string | null;
-  activityType: ActivityType;
-  status: ActivityStatus;
-  activityDate: string;
-  timeIn: string | null;
-  timeOut: string | null;
-  workingHours: string;
-  isManualOverride: boolean;
-  overrideReason: string | null;
-  description: string | null;
-  project: { id: string; name: string } | null;
-  department: { id: string; name: string } | null;
-  loggedBy: { id: string; name: string };
-  attachments: Attachment[];
-}
-
-const activityTypes: ActivityType[] = ["UPDATE", "CALL", "MEETING", "FOLLOW_UP", "DOCUMENT", "OTHER"];
-const statuses: ActivityStatus[] = ["IN_PROGRESS", "BLOCKED", "COMPLETED"];
-
-function todayDate() {
-  return new Date().toISOString().slice(0, 10);
-}
-function nowTime() {
-  return new Date().toTimeString().slice(0, 5);
-}
 function errorMessage(err: unknown, fallback: string): string {
   const axiosErr = err as { response?: { data?: { error?: string } } };
   return axiosErr.response?.data?.error ?? fallback;
 }
-
-const emptyForm = {
-  name: "",
-  activityType: "UPDATE" as ActivityType,
-  status: "IN_PROGRESS" as ActivityStatus,
-  activityDate: todayDate(),
-  timeIn: nowTime(),
-  timeOut: nowTime(),
-  override: false,
-  manualHours: "1",
-  overrideReason: "",
-  description: "",
-  projectId: "",
-  departmentId: "",
-};
 
 export default function ActivityLog() {
   const { user } = useAuth();
@@ -78,11 +27,8 @@ export default function ActivityLog() {
   const [departments, setDepartments] = useState<Department[]>([]);
 
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [editing, setEditing] = useState<ActivityEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [viewingEntry, setViewingEntry] = useState<ActivityEntry | null>(null);
 
   function refresh() {
@@ -110,30 +56,13 @@ export default function ActivityLog() {
   }
 
   function openCreateForm() {
-    setEditingId(null);
-    setForm(emptyForm);
-    setAttachments([]);
+    setEditing(null);
     setError(null);
     setShowForm(true);
   }
 
   function openEditForm(entry: ActivityEntry) {
-    setEditingId(entry.id);
-    setForm({
-      name: entry.name ?? "",
-      activityType: entry.activityType,
-      status: entry.status,
-      activityDate: entry.activityDate.slice(0, 10),
-      timeIn: entry.timeIn ? entry.timeIn.slice(11, 16) : nowTime(),
-      timeOut: entry.timeOut ? entry.timeOut.slice(11, 16) : nowTime(),
-      override: entry.isManualOverride,
-      manualHours: entry.workingHours,
-      overrideReason: entry.overrideReason ?? "",
-      description: entry.description ?? "",
-      projectId: entry.project?.id ?? "",
-      departmentId: entry.department?.id ?? "",
-    });
-    setAttachments([]);
+    setEditing(entry);
     setError(null);
     setShowForm(true);
   }
@@ -146,50 +75,6 @@ export default function ActivityLog() {
       refresh();
     } catch (err) {
       setError(errorMessage(err, "Could not delete this activity."));
-    }
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (saving) return;
-    setError(null);
-    setSaving(true);
-    try {
-      const payload: Record<string, unknown> = {
-        name: form.name,
-        activityType: form.activityType,
-        status: form.status,
-        activityDate: form.activityDate,
-        description: form.description || undefined,
-        projectId: form.projectId || undefined,
-        departmentId: form.departmentId || undefined,
-      };
-      if (form.override) {
-        payload.isManualOverride = true;
-        payload.workingHours = Number(form.manualHours);
-        payload.overrideReason = form.overrideReason || undefined;
-      } else {
-        payload.timeIn = `${form.activityDate}T${form.timeIn}:00`;
-        payload.timeOut = `${form.activityDate}T${form.timeOut}:00`;
-      }
-
-      const activityId = editingId
-        ? (await api.patch(`/daily-activities/${editingId}`, payload)).data.id
-        : (await api.post("/daily-activities", payload)).data.id;
-
-      if (attachments.length > 0) {
-        const formData = new FormData();
-        attachments.forEach((file) => formData.append("file", file));
-        await api.post(`/daily-activities/${activityId}/attachments`, formData, { headers: { "Content-Type": "multipart/form-data" } });
-      }
-      showToast(editingId ? "Activity updated." : "Activity logged.");
-      setShowForm(false);
-      setEditingId(null);
-      refresh();
-    } catch (err) {
-      setError(errorMessage(err, "Could not save this activity. Check time in/out and try again."));
-    } finally {
-      setSaving(false);
     }
   }
 
@@ -230,121 +115,19 @@ export default function ActivityLog() {
         </div>
       </div>
 
+      {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2 mb-4">{error}</div>}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-4 mb-6 space-y-4">
-          {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700 mb-1 block">Activity Name</span>
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
-              placeholder="e.g. Weekly sync with vendor"
-              className="input"
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700 mb-1 block">Activity Type</span>
-              <select value={form.activityType} onChange={(e) => setForm({ ...form, activityType: e.target.value as ActivityType })} className="input">
-                {activityTypes.map((t) => (
-                  <option key={t} value={t}>{t.replace("_", "-")}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700 mb-1 block">Status</span>
-              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as ActivityStatus })} className="input">
-                {statuses.map((s) => (
-                  <option key={s} value={s}>{s.replace("_", " ")}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700 mb-1 block">Date</span>
-            <input type="date" value={form.activityDate} onChange={(e) => setForm({ ...form, activityDate: e.target.value })} className="input" />
-          </label>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700 mb-1 block">Project (optional)</span>
-              <select value={form.projectId} onChange={(e) => setForm({ ...form, projectId: e.target.value })} className="input">
-                <option value="">— none —</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700 mb-1 block">Department (optional)</span>
-              <select value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} className="input">
-                <option value="">— none —</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-            <input type="checkbox" checked={form.override} onChange={(e) => setForm({ ...form, override: e.target.checked })} className="w-5 h-5" />
-            Manually enter hours instead of time in/out
-          </label>
-
-          {form.override ? (
-            <div className="space-y-3">
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700 mb-1 block">Hours</span>
-                <input
-                  type="number"
-                  step="0.25"
-                  min="0"
-                  value={form.manualHours}
-                  onChange={(e) => setForm({ ...form, manualHours: e.target.value })}
-                  className="input"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700 mb-1 block">Reason for override (optional)</span>
-                <input value={form.overrideReason} onChange={(e) => setForm({ ...form, overrideReason: e.target.value })} className="input" />
-              </label>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700 mb-1 block">Time In</span>
-                <input type="time" value={form.timeIn} onChange={(e) => setForm({ ...form, timeIn: e.target.value })} className="input" />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-700 mb-1 block">Time Out</span>
-                <input type="time" value={form.timeOut} onChange={(e) => setForm({ ...form, timeOut: e.target.value })} className="input" />
-              </label>
-            </div>
-          )}
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700 mb-1 block">Description</span>
-            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="input" />
-          </label>
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700 mb-1 block">Attachments (optional)</span>
-            <input
-              type="file"
-              multiple
-              onChange={(e) => setAttachments(Array.from(e.target.files ?? []))}
-              className="block w-full text-sm text-slate-600"
-            />
-          </label>
-
-          <button type="submit" disabled={saving} className="w-full bg-slate-900 text-white rounded-lg py-2.5 font-medium disabled:opacity-50">
-            {saving ? "Saving..." : editingId ? "Save changes" : "Save activity"}
-          </button>
-        </form>
+        <ActivityForm
+          key={editing?.id ?? "new"}
+          editing={editing}
+          projects={projects}
+          departments={departments}
+          onSaved={() => {
+            setShowForm(false);
+            setEditing(null);
+            refresh();
+          }}
+        />
       )}
 
       <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
@@ -374,7 +157,7 @@ export default function ActivityLog() {
             </div>
             {(e.project || e.department) && (
               <p className="text-xs text-slate-400 mt-1">
-                {e.project?.name}{e.project && e.department ? " · " : ""}{e.department?.name}
+                {e.project?.name}{e.milestone ? ` › ${e.milestone.name}` : ""}{e.project && e.department ? " · " : ""}{e.department?.name}
               </p>
             )}
             {e.description && <p className="text-sm text-slate-600 mt-1">{e.description}</p>}
@@ -420,6 +203,7 @@ export default function ActivityLog() {
             },
             { label: "Override reason", value: viewingEntry.overrideReason },
             { label: "Project", value: viewingEntry.project?.name },
+            { label: "Stage", value: viewingEntry.milestone?.name },
             { label: "Department", value: viewingEntry.department?.name },
             { label: "Description", value: viewingEntry.description },
           ]}

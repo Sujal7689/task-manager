@@ -32,7 +32,8 @@ export interface Category {
   subCategories?: Category[];
 }
 
-export type ProjectStatus = "PLANNING" | "ACTIVE" | "ON_HOLD" | "COMPLETED";
+export type ProjectStatus = "PLANNING" | "ACTIVE" | "ON_HOLD" | "COMPLETED" | "LOST";
+export type ProjectType = "GENERAL" | "CLIENT";
 
 export interface Project {
   id: string;
@@ -44,6 +45,8 @@ export interface Project {
   ownerId: string;
   owner?: { id: string; name: string };
   status: ProjectStatus;
+  type: ProjectType;
+  milestones?: { id: string; name: string; status: MilestoneStatus; sortOrder: number | null }[];
 }
 
 export type MilestoneStatus = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED" | "DELAYED";
@@ -57,6 +60,9 @@ export interface Milestone {
   owner?: { id: string; name: string };
   status: MilestoneStatus;
   computedProgress?: number;
+  sortOrder?: number | null;
+  completedAt?: string | null;
+  completedBy?: { id: string; name: string } | null;
 }
 
 export type Priority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
-import { Company, Department, Project, User } from "../../types";
+import { Company, Department, Project, ProjectType, User } from "../../types";
 import Pagination from "../../components/Pagination";
 import SearchInput from "../../components/SearchInput";
 import { useToast } from "../../context/ToastContext";
@@ -22,6 +22,7 @@ export default function ProjectList() {
   const [companyId, setCompanyId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [ownerId, setOwnerId] = useState("");
+  const [type, setType] = useState<ProjectType>("GENERAL");
   const [error, setError] = useState<string | null>(null);
 
   const canCreate = Boolean(user);
@@ -67,7 +68,7 @@ export default function ProjectList() {
     setError(null);
     setSaving(true);
     try {
-      await api.post("/projects", { name, companyId, departmentId, ownerId });
+      await api.post("/projects", { name, companyId, departmentId, ownerId, type });
       setName("");
       setShowForm(false);
       refresh();
@@ -116,7 +117,11 @@ export default function ProjectList() {
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
-          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} required className="border border-slate-300 rounded-lg px-3 py-2 sm:col-span-2">
+          <select value={type} onChange={(e) => setType(e.target.value as ProjectType)} className="border border-slate-300 rounded-lg px-3 py-2">
+            <option value="GENERAL">General (milestones and tasks)</option>
+            <option value="CLIENT">Client (deal stages and activity logs)</option>
+          </select>
+          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)} required className="border border-slate-300 rounded-lg px-3 py-2">
             <option value="">Project owner</option>
             {users.map((u) => (
               <option key={u.id} value={u.id}>{u.name}</option>
@@ -140,6 +145,16 @@ export default function ProjectList() {
               <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{p.status}</span>
             </div>
             <p className="text-sm text-slate-500">Owner: {p.owner?.name ?? "—"}</p>
+            {p.type === "CLIENT" && p.milestones && (
+              <p className="text-xs text-slate-500 mt-1">
+                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 mr-1">Client</span>
+                {p.status === "LOST"
+                  ? "Lost deal"
+                  : (p.milestones.find((m) => m.status !== "COMPLETED")?.name ?? "All stages complete")}
+                {" · "}
+                {p.milestones.filter((m) => m.status === "COMPLETED").length}/{p.milestones.length}
+              </p>
+            )}
           </Link>
         ))}
         {projects.length === 0 && <p className="text-slate-400 text-sm">No projects yet.</p>}

@@ -14,6 +14,7 @@ const canEditOrDelete = requireRole(Role.ADMIN);
 router.get("/", asyncHandler(controller.listHandler));
 router.get("/:id", asyncHandler(controller.getHandler));
 router.post("/", canCreate, asyncHandler(controller.createHandler));
+router.post("/:id/complete", asyncHandler(controller.stageCompleteHandler));
 router.patch("/:id", canEditOrDelete, asyncHandler(controller.updateHandler));
 router.delete("/:id", canEditOrDelete, asyncHandler(controller.deleteHandler));
 
