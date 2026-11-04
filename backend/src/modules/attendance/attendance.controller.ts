@@ -7,7 +7,16 @@ import { toCsv } from "../../utils/csv";
 const rangeSchema = z.object({ from: z.string().min(1), to: z.string().min(1), userId: z.string().optional() });
 const reportSchema = rangeSchema.extend({ format: z.enum(["json", "csv"]).default("json") });
 
-const gpsLocationSchema = z.object({ lat: z.number(), lng: z.number() }).optional();
+// Location is mandatory: attendance must prove where the person was. Enforced
+// here (not only in the browser) so a direct API call can't skip it.
+const LOCATION_REQUIRED = "Location is required to check in or out. Allow location access in your browser and try again.";
+const gpsLocationSchema = z.object(
+  {
+    lat: z.number({ required_error: LOCATION_REQUIRED, invalid_type_error: LOCATION_REQUIRED }).finite().min(-90).max(90),
+    lng: z.number({ required_error: LOCATION_REQUIRED, invalid_type_error: LOCATION_REQUIRED }).finite().min(-180).max(180),
+  },
+  { required_error: LOCATION_REQUIRED, invalid_type_error: LOCATION_REQUIRED },
+);
 const checkActionSchema = z.object({ location: gpsLocationSchema });
 
 export async function checkInHandler(req: Request, res: Response) {

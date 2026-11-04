@@ -86,23 +86,23 @@ export interface GpsLocation {
   lng: number;
 }
 
-export async function checkIn(userId: string, location?: GpsLocation) {
+export async function checkIn(userId: string, location: GpsLocation) {
   const date = todayDateOnly();
   const existing = await prisma.attendance.findUnique({ where: { userId_date: { userId, date } } });
   if (existing) throw new AppError(400, "Already checked in today");
   return prisma.attendance.create({
-    data: { userId, date, checkInAt: new Date(), checkInLat: location?.lat, checkInLng: location?.lng },
+    data: { userId, date, checkInAt: new Date(), checkInLat: location.lat, checkInLng: location.lng },
   });
 }
 
-export async function checkOut(userId: string, location?: GpsLocation) {
+export async function checkOut(userId: string, location: GpsLocation) {
   const date = todayDateOnly();
   const existing = await prisma.attendance.findUnique({ where: { userId_date: { userId, date } } });
   if (!existing) throw new AppError(400, "You haven't checked in today");
   if (existing.checkOutAt) throw new AppError(400, "Already checked out today");
   return prisma.attendance.update({
     where: { id: existing.id },
-    data: { checkOutAt: new Date(), checkOutLat: location?.lat, checkOutLng: location?.lng },
+    data: { checkOutAt: new Date(), checkOutLat: location.lat, checkOutLng: location.lng },
   });
 }
 

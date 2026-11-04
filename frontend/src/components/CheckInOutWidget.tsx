@@ -35,15 +35,25 @@ export default function CheckInOutWidget({ onChange }: { onChange?: () => void }
 
   useEffect(refresh, []);
 
-  // Best-effort: a denied permission, unsupported browser, or timeout never
-  // blocks the check-in/out itself — it just means no location gets attached.
-  function getLocation(): Promise<{ lat: number; lng: number } | undefined> {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) return resolve(undefined);
+  // Location is compulsory: if the browser can't give a position, the
+  // check-in/out is not sent at all (the server rejects it too).
+  function getLocation(): Promise<{ lat: number; lng: number }> {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        return reject(new Error("This browser can't share your location, so attendance can't be recorded. Try Chrome on your phone."));
+      }
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => resolve(undefined),
-        { timeout: 8000 },
+        (err) => {
+          if (err.code === err.PERMISSION_DENIED) {
+            reject(new Error("Location access is blocked. Allow location for this site (tap the lock icon next to the address), then try again."));
+          } else if (err.code === err.TIMEOUT) {
+            reject(new Error("Couldn't get your location in time. Turn on location/GPS and try again."));
+          } else {
+            reject(new Error("Couldn't find your location. Turn on location/GPS and try again."));
+          }
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
       );
     });
   }
@@ -53,13 +63,21 @@ export default function CheckInOutWidget({ onChange }: { onChange?: () => void }
     setPendingAction(null);
     setBusy(true);
     setError(null);
+    let location: { lat: number; lng: number };
     try {
-      const location = await getLocation();
+      location = await getLocation();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Location is required to record attendance.");
+      setBusy(false);
+      return;
+    }
+    try {
       await api.post(action === "checkin" ? "/attendance/check-in" : "/attendance/check-out", { location });
       refresh();
       onChange?.();
-    } catch {
-      setError(action === "checkin" ? "Could not check in." : "Could not check out.");
+    } catch (e) {
+      const serverMessage = (e as { response?: { data?: { error?: string } } }).response?.data?.error;
+      setError(serverMessage ?? (action === "checkin" ? "Could not check in." : "Could not check out."));
     } finally {
       setBusy(false);
     }
@@ -108,8 +126,8 @@ export default function CheckInOutWidget({ onChange }: { onChange?: () => void }
             </h3>
             <p className="text-sm text-slate-500 mb-4">
               {pendingAction === "checkin"
-                ? "This will record your check-in time as right now."
-                : "This will record your check-out time as right now."}
+                ? "This will record your check-in time as right now, along with your current location. Your browser will ask for location access."
+                : "This will record your check-out time as right now, along with your current location. Your browser will ask for location access."}
             </p>
             <div className="flex justify-end gap-2">
               <button

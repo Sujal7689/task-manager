@@ -474,8 +474,8 @@ model Attendance {
   checkInAt  DateTime  @map("check_in_at")
   checkOutAt DateTime? @map("check_out_at")
   // Captured client-side via the browser Geolocation API at the moment of
-  // check-in/out — best-effort, not required (a denied/unavailable location
-  // never blocks the check-in/out itself, so these stay nullable).
+  // check-in/out. Required for every new check-in/out (enforced in the
+  // attendance controller); nullable only because older records predate that.
   checkInLat  Float?   @map("check_in_lat")
   checkInLng  Float?   @map("check_in_lng")
   checkOutLat Float?   @map("check_out_lat")
